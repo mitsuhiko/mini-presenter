@@ -11,6 +11,7 @@
     "start": "node ./bin/mini-presenter.js examples/basic"
   },
   "dependencies": {
+    "pdf-lib": "^1.17.1",
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.16.0"
   }

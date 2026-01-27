@@ -5,52 +5,23 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline";
 import qrcode from "qrcode-terminal";
+import { exportPresentation } from "../src/export.js";
 import { startServer } from "../src/server.js";
 
 const args = process.argv.slice(2);
+const command = args[0] === "export" ? "export" : "serve";
 
-let port = 8080;
-let targetPath = null;
-let watch = false;
-let funnel = false;
-
-for (let i = 0; i < args.length; i += 1) {
-  const arg = args[i];
-  if (arg === "--port" || arg === "-p") {
-    const value = args[i + 1];
-    if (!value) {
-      console.error("Missing port value after --port");
-      process.exit(1);
-    }
-    port = Number.parseInt(value, 10);
-    i += 1;
-    continue;
-  }
-  if (arg === "--watch" || arg === "-w") {
-    watch = true;
-    continue;
-  }
-  if (arg === "--funnel") {
-    funnel = true;
-    continue;
-  }
-  if (!targetPath) {
-    targetPath = arg;
-    continue;
-  }
-  console.error(`Unknown argument: ${arg}`);
-  process.exit(1);
-}
-
-if (!targetPath) {
+function usage() {
   console.log(
-    "Usage: mini-presenter <path> [--port <port>] [--watch] [--funnel]"
+    "Usage:\n" +
+      "  mini-presenter <path> [--port <port>] [--watch] [--funnel]\n" +
+      "  mini-presenter export <path> --output <file|dir> [--format pdf|png] [--delay <ms>] [--chrome-port <port>]"
   );
-  process.exit(1);
 }
 
-const rootDir = path.resolve(process.cwd(), targetPath);
-const presenterKey = generatePresenterKey();
+function generatePresenterKey() {
+  return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
 
 function buildPresenterUrl(baseUrl, { presenterKey, includeKey = false } = {}) {
   const normalizedBase = baseUrl.replace(/\/$/, "");
@@ -71,10 +42,6 @@ function buildUrlBlock(label, baseUrl, { presenterKey, includeKey = false } = {}
   return `${label}:\n  slides ${slidesUrl}\n  presenter ${presenterUrl}`;
 }
 
-function generatePresenterKey() {
-  return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
-}
-
 function printPresenterQr(url) {
   console.log("Presenter QR code:");
   qrcode.generate(url, { small: true });
@@ -84,12 +51,7 @@ function startFunnel({ port, presenterKey }) {
   console.log("Connecting tunnel...");
   const child = spawn(
     "cloudflared",
-    [
-      "tunnel",
-      "--url",
-      `http://localhost:${port}`,
-      "--no-autoupdate",
-    ],
+    ["tunnel", "--url", `http://localhost:${port}`, "--no-autoupdate"],
     { stdio: ["ignore", "pipe", "pipe"] }
   );
   let printedUrl = false;
@@ -137,45 +99,193 @@ function startFunnel({ port, presenterKey }) {
   return child;
 }
 
-const server = await startServer({
-  rootDir,
-  port,
-  watch,
-  quiet: true,
-  presenterKey,
-});
+async function runServeCommand() {
+  let port = 8080;
+  let targetPath = null;
+  let watch = false;
+  let funnel = false;
 
-console.log(`Presenter code: ${presenterKey}`);
-console.log(
-  buildUrlBlock("local", `http://localhost:${port}`, {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--port" || arg === "-p") {
+      const value = args[i + 1];
+      if (!value) {
+        console.error("Missing port value after --port");
+        process.exit(1);
+      }
+      port = Number.parseInt(value, 10);
+      i += 1;
+      continue;
+    }
+    if (arg === "--watch" || arg === "-w") {
+      watch = true;
+      continue;
+    }
+    if (arg === "--funnel") {
+      funnel = true;
+      continue;
+    }
+    if (!targetPath) {
+      targetPath = arg;
+      continue;
+    }
+    console.error(`Unknown argument: ${arg}`);
+    process.exit(1);
+  }
+
+  if (!targetPath) {
+    usage();
+    process.exit(1);
+  }
+
+  const rootDir = path.resolve(process.cwd(), targetPath);
+  const presenterKey = generatePresenterKey();
+
+  const server = await startServer({
+    rootDir,
+    port,
+    watch,
+    quiet: true,
     presenterKey,
-    includeKey: false,
-  })
-);
+  });
 
-let funnelProcess = null;
-if (funnel) {
-  funnelProcess = startFunnel({ port, presenterKey });
+  console.log(`Presenter code: ${presenterKey}`);
+  console.log(
+    buildUrlBlock("local", `http://localhost:${port}`, {
+      presenterKey,
+      includeKey: false,
+    })
+  );
+
+  let funnelProcess = null;
+  if (funnel) {
+    funnelProcess = startFunnel({ port, presenterKey });
+  }
+
+  let isShuttingDown = false;
+  const shutdown = () => {
+    if (isShuttingDown) {
+      return;
+    }
+    isShuttingDown = true;
+    if (funnelProcess) {
+      funnelProcess.kill("SIGINT");
+      funnelProcess = null;
+    }
+    const forceExitTimer = setTimeout(() => {
+      process.exit(0);
+    }, 1500);
+    server.close(() => {
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
-let isShuttingDown = false;
-const shutdown = () => {
-  if (isShuttingDown) {
-    return;
-  }
-  isShuttingDown = true;
-  if (funnelProcess) {
-    funnelProcess.kill("SIGINT");
-    funnelProcess = null;
-  }
-  const forceExitTimer = setTimeout(() => {
-    process.exit(0);
-  }, 1500);
-  server.close(() => {
-    clearTimeout(forceExitTimer);
-    process.exit(0);
-  });
-};
+async function runExportCommand() {
+  const exportArgs = args.slice(1);
+  let targetPath = null;
+  let outputPath = null;
+  let format = "pdf";
+  let delay = 300;
+  let chromePort = 9222;
+  let port = 0;
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+  for (let i = 0; i < exportArgs.length; i += 1) {
+    const arg = exportArgs[i];
+    if (arg === "--output" || arg === "-o") {
+      outputPath = exportArgs[i + 1];
+      if (!outputPath) {
+        console.error("Missing value after --output");
+        process.exit(1);
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === "--format") {
+      format = exportArgs[i + 1] || format;
+      i += 1;
+      continue;
+    }
+    if (arg === "--delay") {
+      const value = exportArgs[i + 1];
+      if (!value) {
+        console.error("Missing value after --delay");
+        process.exit(1);
+      }
+      delay = Number.parseInt(value, 10);
+      i += 1;
+      continue;
+    }
+    if (arg === "--chrome-port") {
+      const value = exportArgs[i + 1];
+      if (!value) {
+        console.error("Missing value after --chrome-port");
+        process.exit(1);
+      }
+      chromePort = Number.parseInt(value, 10);
+      i += 1;
+      continue;
+    }
+    if (arg === "--port") {
+      const value = exportArgs[i + 1];
+      if (!value) {
+        console.error("Missing value after --port");
+        process.exit(1);
+      }
+      port = Number.parseInt(value, 10);
+      i += 1;
+      continue;
+    }
+    if (!targetPath) {
+      targetPath = arg;
+      continue;
+    }
+    console.error(`Unknown argument: ${arg}`);
+    process.exit(1);
+  }
+
+  if (!targetPath || !outputPath) {
+    usage();
+    process.exit(1);
+  }
+
+  format = format.toLowerCase();
+  if (!["pdf", "png"].includes(format)) {
+    console.error(`Unsupported format: ${format}`);
+    process.exit(1);
+  }
+
+  const rootDir = path.resolve(process.cwd(), targetPath);
+  const resolvedOutput = path.resolve(process.cwd(), outputPath);
+
+  if (format === "png" && resolvedOutput.endsWith(".png")) {
+    console.error("For --format png, --output must be a directory");
+    process.exit(1);
+  }
+
+  console.log("Exporting slides...");
+  try {
+    await exportPresentation({
+      rootDir,
+      outputPath: resolvedOutput,
+      delay,
+      format,
+      chromePort,
+      port,
+    });
+  } catch (error) {
+    console.error(`Export failed: ${error.message}`);
+    process.exit(1);
+  }
+  console.log(`Export completed: ${resolvedOutput}`);
+}
+
+if (command === "export") {
+  await runExportCommand();
+} else {
+  await runServeCommand();
+}

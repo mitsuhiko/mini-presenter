@@ -34,6 +34,15 @@ node ./bin/mini-presenter.js path/to/deck --port 8080 --watch --funnel
 Use `--watch` to enable file watching and auto-reload on HTML/CSS/JS changes.
 Use `--funnel` to create an anonymous Cloudflare tunnel (requires `cloudflared`).
 
+## Export slides (PDF/PNG)
+
+The exporter will start a dedicated Chrome instance with remote debugging automatically.
+
+```bash
+mini-presenter export ./slides --output slides.pdf
+mini-presenter export ./slides --output ./images --format png --delay 500
+```
+
 ## Basic requirements for slide decks
 
 Your presentation can be plain HTML/CSS/JS as long as it cooperates with navigation and state reporting:
