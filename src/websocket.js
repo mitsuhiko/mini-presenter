@@ -1,14 +1,17 @@
 import { WebSocket, WebSocketServer } from "ws";
+import { isLocalRequest } from "./request.js";
 
 class Hub {
-  constructor(wss, config) {
+  constructor(wss, { config, presenterKey } = {}) {
     this.wss = wss;
     this.displays = new Set();
     this.presenters = new Set();
     this.currentState = null;
     this.config = config ?? null;
+    this.presenterKey = presenterKey ?? null;
 
-    this.wss.on("connection", (ws) => {
+    this.wss.on("connection", (ws, req) => {
+      ws.isLocal = isLocalRequest(req);
       ws.on("message", (data) => {
         this.handleMessage(ws, data);
       });
@@ -27,7 +30,7 @@ class Hub {
     }
 
     if (message.type === "register") {
-      this.registerClient(ws, message.role);
+      this.registerClient(ws, message.role, message.key);
       return;
     }
 
@@ -45,7 +48,7 @@ class Hub {
     }
   }
 
-  registerClient(ws, role) {
+  registerClient(ws, role, key) {
     if (ws.role === "display") {
       this.displays.delete(ws);
     }
@@ -57,6 +60,10 @@ class Hub {
       ws.role = "display";
       this.displays.add(ws);
     } else if (role === "presenter") {
+      if (this.presenterKey && !ws.isLocal && key !== this.presenterKey) {
+        ws.close(4001, "Unauthorized");
+        return;
+      }
       ws.role = "presenter";
       this.presenters.add(ws);
       this.send(ws, { type: "config", config: this.config ?? {} });
@@ -123,9 +130,9 @@ class Hub {
   }
 }
 
-export function createWebSocketHub(server, config) {
+export function createWebSocketHub(server, options) {
   const wss = new WebSocketServer({ noServer: true });
-  const hub = new Hub(wss, config);
+  const hub = new Hub(wss, options);
 
   server.on("upgrade", (req, socket, head) => {
     const { pathname } = new URL(req.url, "http://localhost");

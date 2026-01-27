@@ -25,12 +25,52 @@ const NEXT_PREVIEW_WAITING_TEXT = "Waiting for display connection…";
 const NEXT_PREVIEW_UNAVAILABLE_TEXT = "Next slide preview unavailable.";
 const NEXT_PREVIEW_LAST_TEXT = "End of deck.";
 
+const presenterKey = getPresenterKey();
+
 const DEFAULT_KEYBOARD = {
   next: ["ArrowRight", "PageDown", " ", "Spacebar"],
   prev: ["ArrowLeft", "PageUp"],
   first: ["Home"],
   last: ["End"],
 };
+
+function isLocalHostname(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function getPresenterKey() {
+  const params = new URLSearchParams(window.location.search);
+  const urlKey = params.get("key");
+  if (urlKey) {
+    return urlKey.trim();
+  }
+
+  if (isLocalHostname(window.location.hostname)) {
+    return null;
+  }
+
+  const storedKey = window.sessionStorage.getItem("miniPresenterKey");
+  if (storedKey) {
+    return storedKey;
+  }
+
+  const enteredKey = window.prompt("Enter presenter code");
+  if (!enteredKey) {
+    return null;
+  }
+
+  const trimmedKey = enteredKey.trim();
+  if (!trimmedKey) {
+    return null;
+  }
+
+  window.sessionStorage.setItem("miniPresenterKey", trimmedKey);
+  params.set("key", trimmedKey);
+  const query = params.toString();
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  window.history.replaceState(null, "", nextUrl);
+  return trimmedKey;
+}
 
 let ws = null;
 let reconnectTimer = null;
@@ -639,7 +679,11 @@ function connect() {
   ws = new WebSocket(getWebSocketUrl());
   ws.addEventListener("open", () => {
     updateConnectionStatus(true);
-    sendMessage({ type: "register", role: "presenter" });
+    const registerMessage = { type: "register", role: "presenter" };
+    if (presenterKey) {
+      registerMessage.key = presenterKey;
+    }
+    sendMessage(registerMessage);
   });
 
   ws.addEventListener("message", handleMessage);

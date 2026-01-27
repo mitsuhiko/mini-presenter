@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import readline from "node:readline";
+import qrcode from "qrcode-terminal";
 import { startServer } from "../src/server.js";
 
 const args = process.argv.slice(2);
@@ -48,15 +50,37 @@ if (!targetPath) {
 }
 
 const rootDir = path.resolve(process.cwd(), targetPath);
+const presenterKey = generatePresenterKey();
 
-function buildUrlBlock(label, baseUrl) {
+function buildPresenterUrl(baseUrl, { presenterKey, includeKey = false } = {}) {
+  const normalizedBase = baseUrl.replace(/\/$/, "");
+  const url = new URL(`${normalizedBase}/_/presenter`);
+  if (includeKey && presenterKey) {
+    url.searchParams.set("key", presenterKey);
+  }
+  return url.toString();
+}
+
+function buildUrlBlock(label, baseUrl, { presenterKey, includeKey = false } = {}) {
   const normalizedBase = baseUrl.replace(/\/$/, "");
   const slidesUrl = `${normalizedBase}/`;
-  const presenterUrl = `${normalizedBase}/_/presenter`;
+  const presenterUrl = buildPresenterUrl(normalizedBase, {
+    presenterKey,
+    includeKey,
+  });
   return `${label}:\n  slides ${slidesUrl}\n  presenter ${presenterUrl}`;
 }
 
-function startFunnel({ port }) {
+function generatePresenterKey() {
+  return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
+
+function printPresenterQr(url) {
+  console.log("Presenter QR code:");
+  qrcode.generate(url, { small: true });
+}
+
+function startFunnel({ port, presenterKey }) {
   console.log("Connecting tunnel...");
   const child = spawn(
     "cloudflared",
@@ -75,7 +99,17 @@ function startFunnel({ port }) {
     const match = line.match(urlPattern);
     if (match && !printedUrl) {
       printedUrl = true;
-      console.log(buildUrlBlock("remote", match[0]));
+      console.log(
+        buildUrlBlock("remote", match[0], {
+          presenterKey,
+          includeKey: true,
+        })
+      );
+      const presenterUrl = buildPresenterUrl(match[0], {
+        presenterKey,
+        includeKey: true,
+      });
+      printPresenterQr(presenterUrl);
     }
   };
 
@@ -103,13 +137,25 @@ function startFunnel({ port }) {
   return child;
 }
 
-const server = await startServer({ rootDir, port, watch, quiet: true });
+const server = await startServer({
+  rootDir,
+  port,
+  watch,
+  quiet: true,
+  presenterKey,
+});
 
-console.log(buildUrlBlock("local", `http://localhost:${port}`));
+console.log(`Presenter code: ${presenterKey}`);
+console.log(
+  buildUrlBlock("local", `http://localhost:${port}`, {
+    presenterKey,
+    includeKey: false,
+  })
+);
 
 let funnelProcess = null;
 if (funnel) {
-  funnelProcess = startFunnel({ port });
+  funnelProcess = startFunnel({ port, presenterKey });
 }
 
 let isShuttingDown = false;

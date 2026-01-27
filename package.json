@@ -11,6 +11,7 @@
     "start": "node ./bin/mini-presenter.js examples/basic"
   },
   "dependencies": {
+    "qrcode-terminal": "^0.12.0",
     "ws": "^8.16.0"
   }
 }

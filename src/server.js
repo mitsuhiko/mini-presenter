@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { injectPresenterScript } from "./injector.js";
 import { watchDirectory } from "./watcher.js";
 import { createWebSocketHub } from "./websocket.js";
+import { isLocalRequest } from "./request.js";
 
 const CLIENT_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -132,7 +133,13 @@ async function loadNotesForHash(rootDir, hash) {
   return null;
 }
 
-export async function startServer({ rootDir, port, watch = false, quiet = false }) {
+export async function startServer({
+  rootDir,
+  port,
+  watch = false,
+  quiet = false,
+  presenterKey = null,
+}) {
   const presenterConfig = await loadPresenterConfig(rootDir);
   const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
@@ -147,6 +154,15 @@ export async function startServer({ rootDir, port, watch = false, quiet = false 
 
     try {
       if (pathname === "/_/presenter" || pathname === "/_/presenter/") {
+        if (presenterKey && !isLocalRequest(req)) {
+          const providedKey = requestUrl.searchParams.get("key");
+          if (providedKey !== presenterKey) {
+            res.statusCode = 401;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Unauthorized\n");
+            return;
+          }
+        }
         const filePath = path.join(CLIENT_DIR, "presenter.html");
         const html = await fs.readFile(filePath, "utf8");
         res.statusCode = 200;
@@ -224,7 +240,10 @@ export async function startServer({ rootDir, port, watch = false, quiet = false 
     }
   });
 
-  const hub = createWebSocketHub(server, presenterConfig);
+  const hub = createWebSocketHub(server, {
+    config: presenterConfig,
+    presenterKey,
+  });
 
   if (watch) {
     const watcher = watchDirectory(rootDir, () => {

@@ -1,5 +1,9 @@
 # mini-presenter
 
+<div align="center">
+  <img src="./logo.png" alt="mini-presenter logo" width="50%" />
+</div>
+
 mini-presenter is a tiny local server that injects a display helper into your
 slides and provides a presenter view with timers, notes, and previews.
 
