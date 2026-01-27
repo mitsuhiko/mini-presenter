@@ -9,5 +9,8 @@
   "license": "MIT",
   "scripts": {
     "start": "node ./bin/mini-presenter.js examples/basic"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
   }
 }

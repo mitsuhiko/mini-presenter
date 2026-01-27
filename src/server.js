@@ -1,11 +1,148 @@
+import fs from "node:fs/promises";
 import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { injectPresenterScript } from "./injector.js";
+import { createWebSocketHub } from "./websocket.js";
+
+const CLIENT_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../client"
+);
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+function getMimeType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[ext] || "application/octet-stream";
+}
+
+function resolveSafePath(baseDir, requestPath) {
+  const resolvedPath = path.resolve(baseDir, `.${requestPath}`);
+  if (!resolvedPath.startsWith(baseDir)) {
+    return null;
+  }
+  return resolvedPath;
+}
+
+async function resolveFilePath(baseDir, requestPath) {
+  let filePath = resolveSafePath(baseDir, requestPath);
+  if (!filePath) {
+    return null;
+  }
+
+  try {
+    const stats = await fs.stat(filePath);
+    if (stats.isDirectory()) {
+      filePath = path.join(filePath, "index.html");
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  return filePath;
+}
+
+async function sendNotFound(res) {
+  res.statusCode = 404;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.end("Not found\n");
+}
 
 export function startServer({ rootDir, port }) {
-  const server = http.createServer((req, res) => {
-    res.statusCode = 501;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("mini-presenter server not implemented yet.\n");
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.statusCode = 405;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("Method not allowed\n");
+      return;
+    }
+
+    const requestUrl = new URL(req.url, "http://localhost");
+    const pathname = decodeURIComponent(requestUrl.pathname);
+
+    try {
+      if (pathname === "/_/presenter" || pathname === "/_/presenter/") {
+        const filePath = path.join(CLIENT_DIR, "presenter.html");
+        const html = await fs.readFile(filePath, "utf8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", MIME_TYPES[".html"]);
+        if (req.method === "HEAD") {
+          res.end();
+          return;
+        }
+        res.end(html);
+        return;
+      }
+
+      if (pathname.startsWith("/_/client/")) {
+        const relativePath = pathname.slice("/_/client".length);
+        const filePath = await resolveFilePath(CLIENT_DIR, relativePath);
+        if (!filePath) {
+          await sendNotFound(res);
+          return;
+        }
+        const data = await fs.readFile(filePath);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", getMimeType(filePath));
+        if (req.method === "HEAD") {
+          res.end();
+          return;
+        }
+        res.end(data);
+        return;
+      }
+
+      const filePath = await resolveFilePath(rootDir, pathname);
+      if (!filePath) {
+        await sendNotFound(res);
+        return;
+      }
+
+      const data = await fs.readFile(filePath);
+      const mimeType = getMimeType(filePath);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", mimeType);
+
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+
+      if (path.extname(filePath).toLowerCase() === ".html") {
+        const html = injectPresenterScript(data.toString("utf8"));
+        res.end(html);
+        return;
+      }
+
+      res.end(data);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        await sendNotFound(res);
+        return;
+      }
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("Internal server error\n");
+      console.error(error);
+    }
   });
+
+  createWebSocketHub(server);
 
   server.listen(port, () => {
     console.log(`mini-presenter serving ${rootDir} on http://localhost:${port}`);
