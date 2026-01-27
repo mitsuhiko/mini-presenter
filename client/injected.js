@@ -42,9 +42,11 @@
   }
 
   function dispatchKey(key) {
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key, bubbles: true })
-    );
+    const target = document.body || document.documentElement || document;
+    if (!target || typeof target.dispatchEvent !== "function") {
+      return;
+    }
+    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
   }
 
   function navigateWithApi(action) {
@@ -122,6 +124,18 @@
     }, RECONNECT_DELAY_MS);
   }
 
+  function patchHistory(methodName) {
+    const original = history[methodName];
+    if (typeof original !== "function") {
+      return;
+    }
+    history[methodName] = function (...args) {
+      const result = original.apply(this, args);
+      reportState();
+      return result;
+    };
+  }
+
   function connect() {
     if (ws) {
       ws.close();
@@ -147,7 +161,11 @@
     });
   }
 
+  patchHistory("replaceState");
+  patchHistory("pushState");
+
   window.addEventListener("hashchange", reportState);
+  window.addEventListener("popstate", reportState);
 
   connect();
 })();
