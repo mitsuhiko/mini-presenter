@@ -1,4 +1,9 @@
 (function () {
+  const params = new URLSearchParams(location.search);
+  if (params.has("_presenter_preview")) {
+    return;
+  }
+
   const RECONNECT_DELAY_MS = 1000;
   const STATE_POLL_INTERVAL_MS = 250;
 

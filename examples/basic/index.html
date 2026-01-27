@@ -166,7 +166,13 @@
         return steps.length;
       }
 
-      function showSlide(index, { updateHash = true } = {}) {
+      function updateHash() {
+        const slideNumber = slides[slideIndex].dataset.slide;
+        const stepSuffix = stepIndex > 0 ? `.${stepIndex}` : "";
+        history.replaceState(null, "", `#${slideNumber}${stepSuffix}`);
+      }
+
+      function showSlide(index, { updateHash: shouldUpdateHash = true } = {}) {
         slideIndex = clamp(index, 0, slides.length - 1);
         slides.forEach((slide, idx) => {
           slide.classList.toggle("active", idx === slideIndex);
@@ -175,19 +181,20 @@
         stepIndex = clamp(stepIndex, 0, stepCount);
         applySteps(slides[slideIndex]);
 
-        if (updateHash) {
-          const slideNumber = slides[slideIndex].dataset.slide;
-          history.replaceState(null, "", `#${slideNumber}`);
+        if (shouldUpdateHash) {
+          updateHash();
         }
       }
 
       function syncFromHash() {
-        const value = window.location.hash.replace("#", "");
-        const slideNumber = Number.parseInt(value, 10);
+        const rawValue = window.location.hash.replace("#", "");
+        const [slideValue, stepValue] = rawValue.split(".");
+        const slideNumber = Number.parseInt(slideValue, 10);
         const index = Number.isNaN(slideNumber)
           ? 0
           : slides.findIndex((slide) => Number(slide.dataset.slide) === slideNumber);
-        stepIndex = 0;
+        const parsedStep = Number.parseInt(stepValue, 10);
+        stepIndex = Number.isNaN(parsedStep) ? 0 : parsedStep;
         showSlide(index === -1 ? 0 : index, { updateHash: false });
       }
 
@@ -196,6 +203,7 @@
         if (stepIndex < steps.length) {
           stepIndex += 1;
           applySteps(slides[slideIndex]);
+          updateHash();
           return;
         }
         stepIndex = 0;
@@ -206,6 +214,7 @@
         if (stepIndex > 0) {
           stepIndex -= 1;
           applySteps(slides[slideIndex]);
+          updateHash();
           return;
         }
         const nextIndex = clamp(slideIndex - 1, 0, slides.length - 1);

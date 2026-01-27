@@ -3,12 +3,15 @@ const currentSlideDisplay = document.querySelector("#current-slide");
 const displayCountDisplay = document.querySelector("#display-count");
 const connectionStatus = document.querySelector("#connection-status");
 const previewPlaceholder = document.querySelector("#preview-placeholder");
+const previewSection = document.querySelector(".presenter__preview");
+const previewFrame = document.querySelector("#preview-frame");
 const timerToggleButton = document.querySelector("#timer-toggle");
 const timerResetButton = document.querySelector("#timer-reset");
 const actionButtons = document.querySelectorAll("[data-action]");
 
 const RECONNECT_DELAY_MS = 1000;
 const TIMER_INTERVAL_MS = 250;
+const PREVIEW_QUERY = "_presenter_preview=1";
 
 let ws = null;
 let reconnectTimer = null;
@@ -18,6 +21,8 @@ let timerStarted = false;
 let timerElapsed = 0;
 let lastTick = 0;
 let lastSlideId = null;
+let lastKnownHash = "#";
+let previewHash = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -102,9 +107,46 @@ function stopTimerInterval() {
   }
 }
 
+function setPreviewActive(active) {
+  if (!previewSection) {
+    return;
+  }
+  previewSection.classList.toggle("presenter__preview--active", active);
+}
+
+function updatePreview(hash) {
+  if (!previewFrame) {
+    return;
+  }
+
+  const previewUrl = `${location.origin}/?${PREVIEW_QUERY}`;
+  const nextHash = hash || "#";
+
+  if (previewHash === nextHash && previewFrame.src) {
+    return;
+  }
+  previewHash = nextHash;
+
+  try {
+    const frameLocation = previewFrame.contentWindow?.location;
+    if (frameLocation && frameLocation.origin === location.origin) {
+      frameLocation.hash = nextHash;
+      return;
+    }
+  } catch (error) {
+    // ignore cross-origin/frame not ready
+  }
+
+  previewFrame.src = `${previewUrl}${nextHash}`;
+}
+
 function updateSlideState({ slideId, hash, displays }) {
   const stateKey = slideId || hash || "—";
   currentSlideDisplay.textContent = stateKey;
+
+  const nextHash = hash || slideId || "#";
+  lastKnownHash = nextHash;
+  updatePreview(nextHash);
 
   if (typeof displays === "number") {
     displayCountDisplay.textContent = displays;
@@ -112,6 +154,7 @@ function updateSlideState({ slideId, hash, displays }) {
       displays > 0
         ? "Display connected. Presenter controls are active."
         : "Waiting for display connection…";
+    setPreviewActive(displays > 0);
   }
 
   if (stateKey !== lastSlideId) {
@@ -143,6 +186,8 @@ function handleMessage(event) {
       message.displays > 0
         ? "Display connected. Presenter controls are active."
         : "Waiting for display connection…";
+    setPreviewActive(message.displays > 0);
+    updatePreview(lastKnownHash);
   }
 }
 
@@ -258,6 +303,8 @@ document.addEventListener("keydown", handleKeyboard);
 updateTimerDisplay();
 updateConnectionStatus(false);
 ensureTimerInterval();
+setPreviewActive(false);
+updatePreview(lastKnownHash);
 connect();
 
 window.addEventListener("beforeunload", () => {
