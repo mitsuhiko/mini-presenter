@@ -506,12 +506,29 @@ function resolveNotesKey(slideId, hash) {
   return hash || slideId || "#";
 }
 
+function hasVisibleNotes() {
+  if (!notesContent) {
+    return false;
+  }
+  const content = notesContent.textContent;
+  return (
+    content &&
+    content !== NOTES_LOADING_TEXT &&
+    content !== NOTES_EMPTY_TEXT &&
+    content !== NOTES_DISABLED_TEXT &&
+    content !== "Waiting for slide updates…" &&
+    content !== "Unable to load notes."
+  );
+}
+
 async function fetchNotesForKey(notesKey) {
   if (!notesContent || !notesStatus) {
     return;
   }
   notesLoadingKey = notesKey;
-  setNotesDisplay(NOTES_LOADING_TEXT, "Loading");
+  if (!hasVisibleNotes()) {
+    setNotesDisplay(NOTES_LOADING_TEXT, "Loading");
+  }
 
   try {
     const url = new URL("/_/api/notes", location.origin);

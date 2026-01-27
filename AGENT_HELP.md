@@ -50,6 +50,15 @@ Behavior details:
 - `getSlideList()` enables the **next-slide preview** in the presenter.
 - `getNotes(slideId)` supplies speaker notes directly from the deck (string only).
 
+## Presenter preview context
+Presenter loads slide previews in iframes with the `?_presenter_preview=1` query param.
+When that flag is present, the injected script:
+- sets `window.miniPresenter.isPresenterPreview = true`
+- sets `document.documentElement.dataset.presenterPreview = "true"`
+- mutes all `<audio>`/`<video>` elements so presenter previews stay silent
+
+Use this flag to disable autoplay audio or other heavy effects in the presenter view.
+
 ## Hash-based navigation (recommended)
 Use URL hashes to encode slide state, e.g. `#3` or `#4.2` for build steps.
 - Call `history.replaceState()` or `location.hash = ...` when state changes.

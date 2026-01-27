@@ -1,6 +1,10 @@
 (function () {
   const params = new URLSearchParams(location.search);
-  if (params.has("_presenter_preview")) {
+  const isPresenterPreview = params.has("_presenter_preview");
+
+  if (isPresenterPreview) {
+    markPresenterPreview();
+    mutePresenterPreviewAudio();
     return;
   }
 
@@ -11,6 +15,65 @@
   let reconnectTimer = null;
   let statePoller = null;
   let lastReported = { slideId: null, hash: null, notes: null };
+
+  function markPresenterPreview() {
+    if (!window.miniPresenter ||
+      (typeof window.miniPresenter !== "object" && typeof window.miniPresenter !== "function")) {
+      window.miniPresenter = {};
+    }
+    try {
+      window.miniPresenter.isPresenterPreview = true;
+    } catch (error) {
+      // ignore read-only globals
+    }
+    if (document.documentElement) {
+      document.documentElement.dataset.presenterPreview = "true";
+    }
+  }
+
+  function mutePresenterPreviewAudio() {
+    const muteElement = (element) => {
+      if (!element) {
+        return;
+      }
+      try {
+        element.muted = true;
+      } catch (error) {
+        // ignore
+      }
+      try {
+        element.volume = 0;
+      } catch (error) {
+        // ignore
+      }
+      if (typeof element.setAttribute === "function") {
+        element.setAttribute("muted", "");
+      }
+    };
+
+    const muteAll = () => {
+      document.querySelectorAll("audio, video").forEach(muteElement);
+    };
+
+    muteAll();
+
+    document.addEventListener(
+      "play",
+      (event) => {
+        if (event.target instanceof HTMLMediaElement) {
+          muteElement(event.target);
+        }
+      },
+      true
+    );
+
+    if (document.documentElement) {
+      const observer = new MutationObserver(() => {
+        muteAll();
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  }
 
   function getWebSocketUrl() {
     const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -106,6 +169,145 @@
     }
   }
 
+  function toggleFullscreen() {
+    const elem = document.documentElement;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      elem.requestFullscreen().catch(() => {});
+    }
+  }
+
+  function handleKeydown(event) {
+    if (event.key === "f" || event.key === "F") {
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+        return;
+      }
+      event.preventDefault();
+      toggleFullscreen();
+    }
+  }
+
+  function openPresenterView() {
+    const url = new URL("/_/presenter", location.origin);
+    window.open(url.href, "miniPresenterView", "width=1000,height=700");
+  }
+
+  function createControlOverlay() {
+    const HIDE_DELAY_MS = 2000;
+    const TRIGGER_SIZE = 100;
+
+    let hideTimer = null;
+    let isVisible = false;
+    let isHoveringButton = false;
+
+    const overlay = document.createElement("div");
+    overlay.id = "mini-presenter-overlay";
+    overlay.style.cssText = `
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 8px;
+      z-index: 2147483647;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+
+    const buttonStyle = `
+      border: none;
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.15s ease;
+    `;
+
+    const fullscreenBtn = document.createElement("button");
+    fullscreenBtn.textContent = "⛶ Fullscreen";
+    fullscreenBtn.style.cssText = buttonStyle;
+    fullscreenBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
+    fullscreenBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
+    fullscreenBtn.addEventListener("click", toggleFullscreen);
+
+    const presenterBtn = document.createElement("button");
+    presenterBtn.textContent = "🎤 Presenter";
+    presenterBtn.style.cssText = buttonStyle;
+    presenterBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
+    presenterBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
+    presenterBtn.addEventListener("click", openPresenterView);
+
+    overlay.appendChild(fullscreenBtn);
+    overlay.appendChild(presenterBtn);
+
+    function show() {
+      if (isVisible) {
+        return;
+      }
+      isVisible = true;
+      overlay.style.opacity = "1";
+      overlay.style.pointerEvents = "auto";
+    }
+
+    function hide() {
+      if (!isVisible) {
+        return;
+      }
+      isVisible = false;
+      overlay.style.opacity = "0";
+      overlay.style.pointerEvents = "none";
+    }
+
+    function cancelHide() {
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+    }
+
+    function scheduleHide() {
+      cancelHide();
+      hideTimer = setTimeout(() => {
+        if (!isHoveringButton) {
+          hide();
+        }
+      }, HIDE_DELAY_MS);
+    }
+
+    function isInTriggerZone(event) {
+      const x = window.innerWidth - event.clientX;
+      const y = window.innerHeight - event.clientY;
+      return x <= TRIGGER_SIZE && y <= TRIGGER_SIZE;
+    }
+
+    document.addEventListener("mousemove", (event) => {
+      if (isInTriggerZone(event)) {
+        show();
+        scheduleHide();
+      }
+    });
+
+    if (document.body) {
+      document.body.appendChild(overlay);
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.appendChild(overlay);
+      });
+    }
+  }
+
   function handleMessage(event) {
     let message;
     try {
@@ -194,5 +396,8 @@
   window.addEventListener("hashchange", reportState);
   window.addEventListener("popstate", reportState);
 
+  document.addEventListener("keydown", handleKeydown);
+
   connect();
+  createControlOverlay();
 })();
