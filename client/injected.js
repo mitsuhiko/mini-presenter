@@ -10,7 +10,7 @@
   let ws = null;
   let reconnectTimer = null;
   let statePoller = null;
-  let lastReported = { slideId: null, hash: null };
+  let lastReported = { slideId: null, hash: null, notes: null };
 
   function getWebSocketUrl() {
     const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -31,14 +31,35 @@
     return location.hash || "#";
   }
 
+  function getNotes(slideId) {
+    if (window.miniPresenter && typeof window.miniPresenter.getNotes === "function") {
+      try {
+        const notes = window.miniPresenter.getNotes(slideId);
+        return typeof notes === "string" ? notes : null;
+      } catch (error) {
+        return null;
+      }
+    }
+    return undefined;
+  }
+
   function reportState() {
     const slideId = getSlideId();
     const hash = location.hash || "#";
-    if (slideId === lastReported.slideId && hash === lastReported.hash) {
+    const notes = getNotes(slideId);
+    if (
+      slideId === lastReported.slideId &&
+      hash === lastReported.hash &&
+      notes === lastReported.notes
+    ) {
       return;
     }
-    lastReported = { slideId, hash };
-    sendMessage({ type: "state", slideId, hash });
+    lastReported = { slideId, hash, notes };
+    const message = { type: "state", slideId, hash };
+    if (notes !== undefined) {
+      message.notes = notes;
+    }
+    sendMessage(message);
   }
 
   function dispatchKey(key) {

@@ -11,7 +11,7 @@ body {
 
 .presenter {
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   min-height: 100vh;
   padding: 2rem;
   gap: 1.5rem;
@@ -103,6 +103,46 @@ body {
 .presenter__preview--active .presenter__placeholder {
   opacity: 0;
   pointer-events: none;
+}
+
+.presenter__notes {
+  border-radius: 1rem;
+  background: #0b1224;
+  border: 1px solid #1f2937;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 10rem;
+  max-height: 32vh;
+  overflow: hidden;
+}
+
+.presenter__notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  color: #cbd5f5;
+}
+
+.presenter__notes-title {
+  font-weight: 600;
+  color: #f9fafb;
+}
+
+.presenter__notes-status {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.presenter__notes-content {
+  flex: 1;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-size: 1rem;
+  color: #e5e7eb;
 }
 
 .presenter__controls {

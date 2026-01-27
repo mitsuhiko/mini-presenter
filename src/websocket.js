@@ -1,11 +1,12 @@
 import { WebSocket, WebSocketServer } from "ws";
 
 class Hub {
-  constructor(wss) {
+  constructor(wss, config) {
     this.wss = wss;
     this.displays = new Set();
     this.presenters = new Set();
     this.currentState = null;
+    this.config = config ?? null;
 
     this.wss.on("connection", (ws) => {
       ws.on("message", (data) => {
@@ -58,6 +59,7 @@ class Hub {
     } else if (role === "presenter") {
       ws.role = "presenter";
       this.presenters.add(ws);
+      this.send(ws, { type: "config", config: this.config ?? {} });
       if (this.currentState) {
         this.send(ws, {
           ...this.currentState,
@@ -117,9 +119,9 @@ class Hub {
   }
 }
 
-export function createWebSocketHub(server) {
+export function createWebSocketHub(server, config) {
   const wss = new WebSocketServer({ noServer: true });
-  const hub = new Hub(wss);
+  const hub = new Hub(wss, config);
 
   server.on("upgrade", (req, socket, head) => {
     const { pathname } = new URL(req.url, "http://localhost");

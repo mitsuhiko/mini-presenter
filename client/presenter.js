@@ -8,10 +8,23 @@ const previewFrame = document.querySelector("#preview-frame");
 const timerToggleButton = document.querySelector("#timer-toggle");
 const timerResetButton = document.querySelector("#timer-reset");
 const actionButtons = document.querySelectorAll("[data-action]");
+const brandDisplay = document.querySelector(".presenter__brand");
+const notesStatus = document.querySelector("#notes-status");
+const notesContent = document.querySelector("#notes-content");
 
 const RECONNECT_DELAY_MS = 1000;
 const TIMER_INTERVAL_MS = 250;
 const PREVIEW_QUERY = "_presenter_preview=1";
+const NOTES_LOADING_TEXT = "Loading notes…";
+const NOTES_EMPTY_TEXT = "No notes for this slide.";
+const NOTES_DISABLED_TEXT = "Speaker notes disabled.";
+
+const DEFAULT_KEYBOARD = {
+  next: ["ArrowRight", "PageDown", " ", "Spacebar"],
+  prev: ["ArrowLeft", "PageUp"],
+  first: ["Home"],
+  last: ["End"],
+};
 
 let ws = null;
 let reconnectTimer = null;
@@ -23,6 +36,11 @@ let lastTick = 0;
 let lastSlideId = null;
 let lastKnownHash = "#";
 let previewHash = null;
+let keyboardMap = new Map();
+let notesSource = "auto";
+let lastNotesKey = null;
+let notesLoadingKey = null;
+const notesCache = new Map();
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -39,6 +57,64 @@ function sendMessage(message) {
 function sendCommand(action, hash) {
   sendMessage({ type: "command", action, hash });
 }
+
+function normalizeKeyboardConfig(config) {
+  const nextConfig = { ...DEFAULT_KEYBOARD };
+  if (!config || typeof config !== "object") {
+    return nextConfig;
+  }
+  for (const [action, keys] of Object.entries(config)) {
+    if (!Array.isArray(keys)) {
+      continue;
+    }
+    const normalized = keys.filter((key) => typeof key === "string");
+    if (normalized.length > 0) {
+      nextConfig[action] = normalized;
+    }
+  }
+  return nextConfig;
+}
+
+function buildKeyboardMap(config) {
+  const map = new Map();
+  for (const [action, keys] of Object.entries(config)) {
+    keys.forEach((key) => {
+      if (!key) {
+        return;
+      }
+      map.set(key, action);
+      if (key.length === 1) {
+        map.set(key.toLowerCase(), action);
+        map.set(key.toUpperCase(), action);
+      }
+    });
+  }
+  return map;
+}
+
+function applyConfig(config) {
+  const title = typeof config?.title === "string" ? config.title : null;
+  if (title && brandDisplay) {
+    brandDisplay.textContent = title;
+    document.title = title;
+  }
+
+  const keyboardConfig = normalizeKeyboardConfig(config?.keyboard);
+  keyboardMap = buildKeyboardMap(keyboardConfig);
+
+  const source = config?.notes?.source;
+  if (source === "api" || source === "files" || source === "none") {
+    notesSource = source;
+  } else {
+    notesSource = "auto";
+  }
+
+  if (lastSlideId || lastKnownHash !== "#") {
+    updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
+  }
+}
+
+keyboardMap = buildKeyboardMap(DEFAULT_KEYBOARD);
 
 function formatDuration(ms) {
   const totalSeconds = Math.floor(ms / 1000);
@@ -140,13 +216,108 @@ function updatePreview(hash) {
   previewFrame.src = `${previewUrl}${nextHash}`;
 }
 
-function updateSlideState({ slideId, hash, displays }) {
+function setNotesDisplay(content, status) {
+  if (notesContent) {
+    notesContent.textContent = content;
+  }
+  if (notesStatus) {
+    notesStatus.textContent = status;
+  }
+}
+
+function resolveNotesKey(slideId, hash) {
+  return hash || slideId || "#";
+}
+
+async function fetchNotesForKey(notesKey) {
+  if (!notesContent || !notesStatus) {
+    return;
+  }
+  notesLoadingKey = notesKey;
+  setNotesDisplay(NOTES_LOADING_TEXT, "Loading");
+
+  try {
+    const url = new URL("/_/api/notes", location.origin);
+    url.searchParams.set("hash", notesKey);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to load notes (${response.status})`);
+    }
+    const data = await response.json();
+    const notes = typeof data?.notes === "string" ? data.notes : null;
+    notesCache.set(notesKey, notes);
+
+    if (notesLoadingKey !== notesKey || notesSource === "none") {
+      return;
+    }
+
+    if (notes) {
+      setNotesDisplay(notes, "Notes file");
+    } else {
+      setNotesDisplay(NOTES_EMPTY_TEXT, "No notes");
+    }
+  } catch (error) {
+    if (notesLoadingKey !== notesKey) {
+      return;
+    }
+    setNotesDisplay("Unable to load notes.", "Error");
+  }
+}
+
+function updateNotes({ slideId, hash, notes }) {
+  if (!notesContent || !notesStatus) {
+    return;
+  }
+
+  const notesKey = resolveNotesKey(slideId, hash);
+  if (!notesKey) {
+    return;
+  }
+  lastNotesKey = notesKey;
+
+  if (notesSource === "none") {
+    setNotesDisplay(NOTES_DISABLED_TEXT, "Disabled");
+    return;
+  }
+
+  const apiNotes = typeof notes === "string" ? notes : null;
+
+  if (notesSource !== "files" && apiNotes) {
+    notesCache.set(notesKey, apiNotes);
+    setNotesDisplay(apiNotes, "Presentation");
+    return;
+  }
+
+  if (notesSource === "api") {
+    if (apiNotes) {
+      setNotesDisplay(apiNotes, "Presentation");
+    } else {
+      setNotesDisplay(NOTES_EMPTY_TEXT, "No notes");
+    }
+    return;
+  }
+
+  if (notesCache.has(notesKey)) {
+    const cachedNotes = notesCache.get(notesKey);
+    if (cachedNotes) {
+      setNotesDisplay(cachedNotes, "Notes file");
+    } else {
+      setNotesDisplay(NOTES_EMPTY_TEXT, "No notes");
+    }
+    return;
+  }
+
+  fetchNotesForKey(notesKey);
+}
+
+function updateSlideState({ slideId, hash, displays, notes }) {
   const stateKey = slideId || hash || "—";
   currentSlideDisplay.textContent = stateKey;
 
   const nextHash = hash || slideId || "#";
   lastKnownHash = nextHash;
   updatePreview(nextHash);
+  updateNotes({ slideId, hash: nextHash, notes });
 
   if (typeof displays === "number") {
     displayCountDisplay.textContent = displays;
@@ -175,6 +346,11 @@ function handleMessage(event) {
     return;
   }
 
+  if (message.type === "config") {
+    applyConfig(message.config ?? {});
+    return;
+  }
+
   if (message.type === "state") {
     updateSlideState(message);
     return;
@@ -188,6 +364,7 @@ function handleMessage(event) {
         : "Waiting for display connection…";
     setPreviewActive(message.displays > 0);
     updatePreview(lastKnownHash);
+    updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
   }
 }
 
@@ -244,30 +421,18 @@ function handleKeyboard(event) {
     return;
   }
 
+  const action =
+    keyboardMap.get(event.key) ||
+    keyboardMap.get(event.key.toLowerCase()) ||
+    keyboardMap.get(event.key.toUpperCase());
+
+  if (action) {
+    event.preventDefault();
+    sendCommand(action);
+    return;
+  }
+
   switch (event.key) {
-    case "ArrowRight":
-    case "PageDown":
-      event.preventDefault();
-      sendCommand("next");
-      break;
-    case " ":
-    case "Spacebar":
-      event.preventDefault();
-      sendCommand("next");
-      break;
-    case "ArrowLeft":
-    case "PageUp":
-      event.preventDefault();
-      sendCommand("prev");
-      break;
-    case "Home":
-      event.preventDefault();
-      sendCommand("first");
-      break;
-    case "End":
-      event.preventDefault();
-      sendCommand("last");
-      break;
     case "t":
     case "T":
       event.preventDefault();
@@ -305,6 +470,7 @@ updateConnectionStatus(false);
 ensureTimerInterval();
 setPreviewActive(false);
 updatePreview(lastKnownHash);
+setNotesDisplay("Waiting for slide updates…", "Idle");
 connect();
 
 window.addEventListener("beforeunload", () => {

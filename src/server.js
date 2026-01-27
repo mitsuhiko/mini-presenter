@@ -63,7 +63,58 @@ async function sendNotFound(res) {
   res.end("Not found\n");
 }
 
-export function startServer({ rootDir, port }) {
+function sendJson(res, payload, method = "GET") {
+  res.statusCode = 200;
+  res.setHeader("Content-Type", MIME_TYPES[".json"]);
+  if (method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(JSON.stringify(payload));
+}
+
+async function loadPresenterConfig(rootDir) {
+  const configPath = path.join(rootDir, "presenter.json");
+  try {
+    const data = await fs.readFile(configPath, "utf8");
+    const parsed = JSON.parse(data);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function sanitizeNotesHash(hash) {
+  if (!hash) {
+    return null;
+  }
+  return hash.replace(/[\\/]/g, "-");
+}
+
+async function loadNotesForHash(rootDir, hash) {
+  const safeHash = sanitizeNotesHash(hash);
+  if (!safeHash) {
+    return null;
+  }
+  const notesPath = path.join(rootDir, "notes", `${safeHash}.md`);
+  try {
+    return await fs.readFile(notesPath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function startServer({ rootDir, port }) {
+  const presenterConfig = await loadPresenterConfig(rootDir);
   const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.statusCode = 405;
@@ -107,6 +158,18 @@ export function startServer({ rootDir, port }) {
         return;
       }
 
+      if (pathname === "/_/api/config") {
+        sendJson(res, presenterConfig ?? {}, req.method);
+        return;
+      }
+
+      if (pathname === "/_/api/notes") {
+        const hash = requestUrl.searchParams.get("hash");
+        const notes = await loadNotesForHash(rootDir, hash);
+        sendJson(res, { notes }, req.method);
+        return;
+      }
+
       const filePath = await resolveFilePath(rootDir, pathname);
       if (!filePath) {
         await sendNotFound(res);
@@ -142,7 +205,7 @@ export function startServer({ rootDir, port }) {
     }
   });
 
-  createWebSocketHub(server);
+  createWebSocketHub(server, presenterConfig);
 
   server.listen(port, () => {
     console.log(`mini-presenter serving ${rootDir} on http://localhost:${port}`);

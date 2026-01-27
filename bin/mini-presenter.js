@@ -35,4 +35,4 @@ if (!targetPath) {
 
 const rootDir = path.resolve(process.cwd(), targetPath);
 
-startServer({ rootDir, port });
+await startServer({ rootDir, port });
