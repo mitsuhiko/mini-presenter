@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mini-presenter demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .slide {
+        display: none;
+        box-sizing: border-box;
+        height: 100vh;
+        width: 100vw;
+        padding: 6vh 8vw;
+        align-content: center;
+      }
+
+      .slide.active {
+        display: grid;
+      }
+
+      h1 {
+        font-size: 4rem;
+        margin: 0 0 1rem;
+      }
+
+      h2 {
+        font-size: 2.5rem;
+        margin-top: 0;
+      }
+
+      p,
+      li {
+        font-size: 1.6rem;
+        line-height: 1.6;
+      }
+
+      ul {
+        padding-left: 2rem;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 999px;
+        background: #334155;
+        color: #cbd5f5;
+        font-size: 1rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .steps {
+        margin-top: 1.5rem;
+      }
+
+      .step.hidden {
+        visibility: hidden;
+      }
+
+      footer {
+        align-self: end;
+        font-size: 1rem;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="slide" data-slide="1">
+      <div>
+        <span class="tag">mini-presenter</span>
+        <h1>Welcome</h1>
+        <p>Press → or Space to advance. Use ← to go back.</p>
+      </div>
+      <footer>#1</footer>
+    </section>
+
+    <section class="slide" data-slide="2">
+      <div>
+        <h2>Why a demo?</h2>
+        <ul>
+          <li>Verify slide navigation logic.</li>
+          <li>Test hash-based slide sync.</li>
+          <li>Exercise build-step handling.</li>
+        </ul>
+      </div>
+      <footer>#2</footer>
+    </section>
+
+    <section class="slide" data-slide="3">
+      <div>
+        <h2>Mini presenter goals</h2>
+        <ul>
+          <li>Keep slides in plain HTML.</li>
+          <li>Offer a clean presenter view.</li>
+          <li>Synchronize display + controls.</li>
+        </ul>
+      </div>
+      <footer>#3</footer>
+    </section>
+
+    <section class="slide" data-slide="4">
+      <div>
+        <h2>Build steps demo</h2>
+        <p>Each bullet reveals with another key press.</p>
+        <ul class="steps">
+          <li class="step">Step one: highlight the key idea.</li>
+          <li class="step">Step two: add supporting detail.</li>
+          <li class="step">Step three: conclude the thought.</li>
+        </ul>
+      </div>
+      <footer>#4</footer>
+    </section>
+
+    <section class="slide" data-slide="5">
+      <div>
+        <h2>Hash navigation</h2>
+        <p>Jump directly to <strong>#3</strong> or <strong>#5</strong> in the URL.</p>
+      </div>
+      <footer>#5</footer>
+    </section>
+
+    <section class="slide" data-slide="6">
+      <div>
+        <h2>What’s next</h2>
+        <ul>
+          <li>Presenter controls</li>
+          <li>WebSocket sync</li>
+          <li>Speaker notes</li>
+        </ul>
+      </div>
+      <footer>#6</footer>
+    </section>
+
+    <section class="slide" data-slide="7">
+      <div>
+        <h2>Thanks!</h2>
+        <p>Demo complete. Try navigating again.</p>
+      </div>
+      <footer>#7</footer>
+    </section>
+
+    <script>
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      let slideIndex = 0;
+      let stepIndex = 0;
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function applySteps(slide) {
+        const steps = Array.from(slide.querySelectorAll(".step"));
+        steps.forEach((step, index) => {
+          step.classList.toggle("hidden", index >= stepIndex);
+        });
+        return steps.length;
+      }
+
+      function showSlide(index, { updateHash = true } = {}) {
+        slideIndex = clamp(index, 0, slides.length - 1);
+        slides.forEach((slide, idx) => {
+          slide.classList.toggle("active", idx === slideIndex);
+        });
+        const stepCount = applySteps(slides[slideIndex]);
+        stepIndex = clamp(stepIndex, 0, stepCount);
+        applySteps(slides[slideIndex]);
+
+        if (updateHash) {
+          const slideNumber = slides[slideIndex].dataset.slide;
+          history.replaceState(null, "", `#${slideNumber}`);
+        }
+      }
+
+      function syncFromHash() {
+        const value = window.location.hash.replace("#", "");
+        const slideNumber = Number.parseInt(value, 10);
+        const index = Number.isNaN(slideNumber)
+          ? 0
+          : slides.findIndex((slide) => Number(slide.dataset.slide) === slideNumber);
+        stepIndex = 0;
+        showSlide(index === -1 ? 0 : index, { updateHash: false });
+      }
+
+      function next() {
+        const steps = Array.from(slides[slideIndex].querySelectorAll(".step"));
+        if (stepIndex < steps.length) {
+          stepIndex += 1;
+          applySteps(slides[slideIndex]);
+          return;
+        }
+        stepIndex = 0;
+        showSlide(slideIndex + 1);
+      }
+
+      function prev() {
+        if (stepIndex > 0) {
+          stepIndex -= 1;
+          applySteps(slides[slideIndex]);
+          return;
+        }
+        const nextIndex = clamp(slideIndex - 1, 0, slides.length - 1);
+        slideIndex = nextIndex;
+        const steps = Array.from(slides[slideIndex].querySelectorAll(".step"));
+        stepIndex = steps.length;
+        showSlide(slideIndex);
+      }
+
+      window.addEventListener("hashchange", syncFromHash);
+      window.addEventListener("keydown", (event) => {
+        if (["ArrowRight", " ", "PageDown"].includes(event.key)) {
+          event.preventDefault();
+          next();
+        }
+        if (["ArrowLeft", "PageUp"].includes(event.key)) {
+          event.preventDefault();
+          prev();
+        }
+      });
+
+      syncFromHash();
+    </script>
+  </body>
+</html>

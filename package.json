@@ -1,0 +1,13 @@
+{
+  "name": "mini-presenter",
+  "version": "0.1.0",
+  "description": "Lightweight presentation helper with presenter view",
+  "type": "module",
+  "bin": {
+    "mini-presenter": "./bin/mini-presenter.js"
+  },
+  "license": "MIT",
+  "scripts": {
+    "start": "node ./bin/mini-presenter.js examples/basic"
+  }
+}
