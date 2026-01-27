@@ -94,23 +94,41 @@ function sanitizeNotesHash(hash) {
   if (!hash) {
     return null;
   }
-  return hash.replace(/[\\/]/g, "-");
+  let trimmed = hash.replace(/^#/, "");
+  trimmed = trimmed.replace(/~(next|prev)$/u, "");
+  trimmed = trimmed.replace(/\//g, "--");
+  return trimmed;
+}
+
+function buildNotesCandidates(hash) {
+  const safeHash = sanitizeNotesHash(hash);
+  if (!safeHash) {
+    return [];
+  }
+  const candidates = [safeHash];
+  const base = safeHash.split(/--|-|\./u)[0];
+  if (base && base !== safeHash && /^\d+$/.test(base)) {
+    candidates.push(base);
+  }
+  return candidates;
 }
 
 async function loadNotesForHash(rootDir, hash) {
-  const safeHash = sanitizeNotesHash(hash);
-  if (!safeHash) {
+  const candidates = buildNotesCandidates(hash);
+  if (candidates.length === 0) {
     return null;
   }
-  const notesPath = path.join(rootDir, "notes", `${safeHash}.md`);
-  try {
-    return await fs.readFile(notesPath, "utf8");
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return null;
+  for (const candidate of candidates) {
+    const notesPath = path.join(rootDir, "notes", `${candidate}.md`);
+    try {
+      return await fs.readFile(notesPath, "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
     }
-    throw error;
   }
+  return null;
 }
 
 export async function startServer({ rootDir, port }) {

@@ -1,15 +1,64 @@
 # mini-presenter
 
-Run a local HTTP server that injects a display script into your slides and exposes a presenter view.
+mini-presenter is a tiny local server that injects a display helper into your
+slides and provides a presenter view with timers, notes, and previews.
 
-## Usage
+This should allow you to present almost any website as a slideshow for as long
+as it has anchors per slide and build step.  With a bit of extra support for
+special marker hashes you can also have next slide previews.
+
+## Features
+
+- Injected display script keeps the presenter view in sync.
+- Presenter dashboard with current slide preview, timer, and connection status.
+- Optional next-slide preview when your deck exposes slide order.
+- Speaker notes via deck API or Markdown files.
+- Configurable keyboard shortcuts.
+
+## Quick start
 
 ```bash
-mini-presenter path/to/presentation --port 8080
+npm install
+node ./bin/mini-presenter.js path/to/deck --port 8080
 ```
 
-- Presentation: `http://localhost:8080/`
+- Slides: `http://localhost:8080/`
 - Presenter view: `http://localhost:8080/_/presenter`
+
+## Basic requirements for slide decks
+
+Your presentation can be plain HTML/CSS/JS as long as it cooperates with navigation and state reporting:
+
+- **Served from a local folder.** mini-presenter serves the folder you pass on the CLI and injects its script into any HTML file.
+- **Expose a current slide identifier.** The injected script uses `window.miniPresenter.getCurrentSlide()` if available. Otherwise it falls back to `location.hash`.
+- **React to navigation commands.** The presenter sends `next`, `prev`, `first`, `last`, and `goto` actions. Implement the mini-presenter API (below) _or_ listen for keyboard events (`ArrowRight`, `ArrowLeft`, `Home`, `End`) and update the slide state yourself.
+- **Update the URL hash.** This is the easiest way to keep the presenter preview and notes aligned. When the current slide changes, update `location.hash` (or implement `getCurrentSlide()`).
+
+If you already have a deck that uses hash-based navigation (Reveal, custom HTML, etc.), it usually “just works.”
+
+## Mini-presenter deck API (optional)
+
+Add a global `window.miniPresenter` object to make the presenter smarter:
+
+```js
+window.miniPresenter = {
+  // Navigation hooks (used instead of keyboard events when present)
+  next() {},
+  prev() {},
+  first() {},
+  last() {},
+  goto(hash) {},
+
+  // State + metadata
+  getCurrentSlide() { return location.hash || "#"; },
+  getSlideList() { return ["#1", "#2", "#3"]; },
+  getNotes(slideId) { return "Speaker notes"; }
+};
+```
+
+- `getSlideList()` enables the next-slide preview.
+- `getNotes(slideId)` provides speaker notes directly from the deck.
+- If you don’t expose these hooks, the presenter falls back to URL hash updates and keyboard events.
 
 ## Configuration (`presenter.json`)
 
@@ -47,11 +96,16 @@ Notes are shown in the presenter view and loaded in this order:
 1. Presentation API: define `window.miniPresenter.getNotes(slideId)` in your deck.
 2. Notes files: add Markdown files under `notes/` next to your `index.html`.
 
-File mapping examples:
+File mapping rules:
 
-- `#1` → `notes/#1.md`
-- `#/2/1` → `notes/#-2-1.md` (slashes replaced with dashes)
-- `#intro` → `notes/#intro.md`
+- `#1` → `notes/1.md`
+- `#1.2` → `notes/1.2.md` (falls back to `notes/1.md` if missing)
+- `#2-1` → `notes/2-1.md` (falls back to `notes/2.md` if missing)
+- `#/2/1` → `notes/2--1.md` (slashes become `--`)
+- `#intro` → `notes/intro.md`
+
+Numeric hashes with `-`, `.`, or `--` suffixes fall back to the base number if the
+specific file is missing (for example `#2/1` → `notes/2.md`).
 
 Notes are fetched from `/_/api/notes?hash=%23intro` and rendered as pre-wrapped text.
 
