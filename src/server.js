@@ -132,7 +132,7 @@ async function loadNotesForHash(rootDir, hash) {
   return null;
 }
 
-export async function startServer({ rootDir, port, watch = false }) {
+export async function startServer({ rootDir, port, watch = false, quiet = false }) {
   const presenterConfig = await loadPresenterConfig(rootDir);
   const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
@@ -235,9 +235,13 @@ export async function startServer({ rootDir, port, watch = false }) {
     });
   }
 
-  server.listen(port, () => {
-    console.log(`mini-presenter serving ${rootDir} on http://localhost:${port}`);
+  await new Promise((resolve) => {
+    server.listen(port, resolve);
   });
+
+  if (!quiet) {
+    console.log(`mini-presenter serving ${rootDir} on http://localhost:${port}`);
+  }
 
   return server;
 }
