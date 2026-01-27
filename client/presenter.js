@@ -654,10 +654,10 @@ function handleMessage(event) {
 function updateConnectionStatus(connected) {
   if (connected) {
     connectionStatus.textContent = "Connected";
-    connectionStatus.style.color = "#34d399";
+    connectionStatus.style.color = "var(--presenter-connection-ok)";
   } else {
     connectionStatus.textContent = "Disconnected";
-    connectionStatus.style.color = "#fbbf24";
+    connectionStatus.style.color = "var(--presenter-connection-warn)";
   }
 }
 
