@@ -102,6 +102,7 @@ body {
   border: none;
   border-radius: 0.75rem;
   background: #0b1020;
+  pointer-events: none;
 }
 
 .presenter__preview--active .presenter__preview-frame {
