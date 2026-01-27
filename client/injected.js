@@ -118,6 +118,12 @@
       handleNavigate(message.action);
     } else if (message.type === "goto") {
       handleGoto(message.hash);
+    } else if (message.type === "reload") {
+      if (message.preserveHash) {
+        location.reload();
+      } else {
+        location.href = "/";
+      }
     }
   }
 

@@ -7,6 +7,7 @@ const args = process.argv.slice(2);
 
 let port = 8080;
 let targetPath = null;
+let watch = false;
 
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
@@ -20,6 +21,10 @@ for (let i = 0; i < args.length; i += 1) {
     i += 1;
     continue;
   }
+  if (arg === "--watch" || arg === "-w") {
+    watch = true;
+    continue;
+  }
   if (!targetPath) {
     targetPath = arg;
     continue;
@@ -29,10 +34,10 @@ for (let i = 0; i < args.length; i += 1) {
 }
 
 if (!targetPath) {
-  console.log("Usage: mini-presenter <path> [--port <port>]");
+  console.log("Usage: mini-presenter <path> [--port <port>] [--watch]");
   process.exit(1);
 }
 
 const rootDir = path.resolve(process.cwd(), targetPath);
 
-await startServer({ rootDir, port });
+await startServer({ rootDir, port, watch });

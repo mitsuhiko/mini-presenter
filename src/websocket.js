@@ -109,6 +109,10 @@ class Hub {
     ws.send(JSON.stringify(message));
   }
 
+  broadcastReload({ preserveHash = true } = {}) {
+    this.broadcast(this.displays, { type: "reload", preserveHash });
+  }
+
   broadcast(targets, message) {
     const payload = JSON.stringify(message);
     for (const ws of targets) {

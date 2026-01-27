@@ -14,16 +14,19 @@ special marker hashes you can also have next slide previews.
 - Optional next-slide preview when your deck exposes slide order.
 - Speaker notes via deck API or Markdown files.
 - Configurable keyboard shortcuts.
+- Optional file watching with auto-reload.
 
 ## Quick start
 
 ```bash
 npm install
-node ./bin/mini-presenter.js path/to/deck --port 8080
+node ./bin/mini-presenter.js path/to/deck --port 8080 --watch
 ```
 
 - Slides: `http://localhost:8080/`
 - Presenter view: `http://localhost:8080/_/presenter`
+
+Use `--watch` to enable file watching and auto-reload on HTML/CSS/JS changes.
 
 ## Basic requirements for slide decks
 

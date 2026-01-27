@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { injectPresenterScript } from "./injector.js";
+import { watchDirectory } from "./watcher.js";
 import { createWebSocketHub } from "./websocket.js";
 
 const CLIENT_DIR = path.resolve(
@@ -131,7 +132,7 @@ async function loadNotesForHash(rootDir, hash) {
   return null;
 }
 
-export async function startServer({ rootDir, port }) {
+export async function startServer({ rootDir, port, watch = false }) {
   const presenterConfig = await loadPresenterConfig(rootDir);
   const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
@@ -223,7 +224,16 @@ export async function startServer({ rootDir, port }) {
     }
   });
 
-  createWebSocketHub(server, presenterConfig);
+  const hub = createWebSocketHub(server, presenterConfig);
+
+  if (watch) {
+    const watcher = watchDirectory(rootDir, () => {
+      hub.broadcastReload({ preserveHash: true });
+    });
+    server.on("close", () => {
+      watcher.close();
+    });
+  }
 
   server.listen(port, () => {
     console.log(`mini-presenter serving ${rootDir} on http://localhost:${port}`);
