@@ -196,7 +196,7 @@ function startTimer() {
   }
   timerRunning = true;
   lastTick = Date.now();
-  timerToggleButton.textContent = "⏱ Pause";
+  timerToggleButton.textContent = "Pause";
 }
 
 function pauseTimer() {
@@ -204,7 +204,7 @@ function pauseTimer() {
     return;
   }
   timerRunning = false;
-  timerToggleButton.textContent = "⏱ Resume";
+  timerToggleButton.textContent = "Resume";
 }
 
 function toggleTimer() {

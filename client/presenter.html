@@ -2,21 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>mini-presenter</title>
     <link rel="stylesheet" href="/_/client/presenter.css" />
   </head>
   <body>
     <main class="presenter">
-      <header class="presenter__header">
-        <div class="presenter__brand">mini-presenter</div>
-        <div class="presenter__status">
-          <div class="presenter__timer" id="timer">00:00:00</div>
-          <div class="presenter__slide">
-            Current: <span id="current-slide">—</span>
-          </div>
-        </div>
-      </header>
-
       <section class="presenter__previews" aria-label="Slide previews">
         <div class="presenter__preview presenter__preview--current">
           <div class="presenter__preview-title">Current slide</div>
@@ -71,14 +62,22 @@
           <button class="presenter__button" data-action="next">Next ▶</button>
         </div>
         <div class="presenter__timer-controls">
-          <button class="presenter__button" id="timer-toggle">⏱ Pause</button>
+          <button class="presenter__button" id="timer-toggle">Pause</button>
           <button class="presenter__button" id="timer-reset">⟲ Reset</button>
         </div>
       </section>
 
       <footer class="presenter__footer">
-        <div>Displays connected: <span id="display-count">0</span></div>
-        <div id="connection-status" class="presenter__connection">Disconnected</div>
+        <div class="presenter__footer-meta">
+          <div class="presenter__timer" id="timer">00:00:00</div>
+          <div class="presenter__slide">
+            Current: <span id="current-slide">—</span>
+          </div>
+        </div>
+        <div class="presenter__footer-status">
+          <div>Displays connected: <span id="display-count">0</span></div>
+          <div id="connection-status" class="presenter__connection">Disconnected</div>
+        </div>
       </footer>
     </main>
     <script src="/_/client/presenter.js" type="module"></script>

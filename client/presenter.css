@@ -7,11 +7,12 @@ body {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   background: #111827;
   color: #e5e7eb;
+  touch-action: manipulation;
 }
 
 .presenter {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   min-height: 100vh;
   padding: 2rem;
   gap: 1.5rem;
@@ -146,8 +147,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-height: 10rem;
-  max-height: 32vh;
+  height: 14rem;
+  max-height: 14rem;
   overflow: hidden;
 }
 
@@ -216,8 +217,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   font-size: 0.95rem;
   color: #cbd5f5;
+}
+
+.presenter__footer-meta,
+.presenter__footer-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .presenter__connection {
@@ -226,7 +237,13 @@ body {
 
 @media (max-width: 720px) {
   .presenter {
-    padding: 1.5rem;
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .presenter__header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .presenter__status {
@@ -235,9 +252,61 @@ body {
     gap: 0.35rem;
   }
 
+  .presenter__previews {
+    grid-template-columns: 1fr;
+  }
+
+  .presenter__preview {
+    min-height: 14rem;
+    padding: 1rem;
+  }
+
+  .presenter__preview--current {
+    min-height: 42vh;
+  }
+
+  .presenter__preview--next {
+    display: none;
+  }
+
+  .presenter__notes {
+    height: 10rem;
+    max-height: 10rem;
+    padding: 1rem;
+  }
+
   .presenter__controls {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    position: sticky;
+    bottom: 0;
+    background: #111827;
+    padding: 0.5rem 0 calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .presenter__nav,
+  .presenter__timer-controls {
+    width: 100%;
+  }
+
+  .presenter__nav {
+    gap: 0.75rem;
+  }
+
+  .presenter__nav .presenter__button {
+    flex: 1;
+    width: 100%;
+    font-size: 1.25rem;
+    padding: 1.2rem 1.5rem;
+  }
+
+  .presenter__timer-controls {
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .presenter__timer-controls .presenter__button {
+    flex: 1;
   }
 
   .presenter__footer {
