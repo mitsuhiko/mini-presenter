@@ -3,13 +3,42 @@
   <head>
     <meta charset="utf-8" />
     <title>mini-presenter</title>
-    <link rel="stylesheet" href="./presenter.css" />
+    <link rel="stylesheet" href="/_/client/presenter.css" />
   </head>
   <body>
     <main class="presenter">
-      <h1>mini-presenter</h1>
-      <p>Presenter view coming soon.</p>
+      <header class="presenter__header">
+        <div class="presenter__brand">mini-presenter</div>
+        <div class="presenter__status">
+          <div class="presenter__timer" id="timer">00:00:00</div>
+          <div class="presenter__slide">
+            Current: <span id="current-slide">—</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="presenter__preview" aria-label="Slide preview">
+        <div class="presenter__placeholder" id="preview-placeholder">
+          Waiting for display connection…
+        </div>
+      </section>
+
+      <section class="presenter__controls">
+        <div class="presenter__nav">
+          <button class="presenter__button" data-action="prev">◀ Prev</button>
+          <button class="presenter__button" data-action="next">Next ▶</button>
+        </div>
+        <div class="presenter__timer-controls">
+          <button class="presenter__button" id="timer-toggle">⏱ Pause</button>
+          <button class="presenter__button" id="timer-reset">⟲ Reset</button>
+        </div>
+      </section>
+
+      <footer class="presenter__footer">
+        <div>Displays connected: <span id="display-count">0</span></div>
+        <div id="connection-status" class="presenter__connection">Disconnected</div>
+      </footer>
     </main>
-    <script src="./presenter.js" type="module"></script>
+    <script src="/_/client/presenter.js" type="module"></script>
   </body>
 </html>

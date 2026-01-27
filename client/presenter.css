@@ -1,3 +1,7 @@
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -6,10 +10,127 @@ body {
 }
 
 .presenter {
-  display: flex;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
   min-height: 100vh;
+  padding: 2rem;
+  gap: 1.5rem;
+}
+
+.presenter__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.presenter__brand {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f9fafb;
+}
+
+.presenter__status {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  font-size: 1rem;
+}
+
+.presenter__timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.presenter__slide {
+  color: #d1d5db;
+}
+
+.presenter__preview {
+  border-radius: 1rem;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  display: flex;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+  font-size: 1.1rem;
+  color: #9ca3af;
+}
+
+.presenter__placeholder {
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.presenter__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.presenter__nav,
+.presenter__timer-controls {
+  display: flex;
+  gap: 1rem;
+}
+
+.presenter__button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.85rem 1.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #2563eb;
+  color: #f9fafb;
+  transition: background 0.2s ease;
+}
+
+.presenter__button:hover {
+  background: #1d4ed8;
+}
+
+.presenter__button:active {
+  transform: translateY(1px);
+}
+
+.presenter__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  color: #cbd5f5;
+}
+
+.presenter__connection {
+  color: #fbbf24;
+}
+
+@media (max-width: 720px) {
+  .presenter {
+    padding: 1.5rem;
+  }
+
+  .presenter__status {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .presenter__controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .presenter__footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
 }
