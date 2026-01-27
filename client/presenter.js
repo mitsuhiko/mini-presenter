@@ -52,6 +52,9 @@ let relativeHashPreview = false;
 let nextPreviewHash = null;
 let lastDisplayCount = 0;
 let configTitle = null;
+let pendingNextPreviewHash = null;
+let relativeNextPreviewTimer = null;
+let relativeNextPreviewAttempts = 0;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -251,6 +254,7 @@ function updateNextPreviewFrame(hash) {
     const frameLocation = nextPreviewFrame.contentWindow?.location;
     if (frameLocation && frameLocation.origin === location.origin) {
       frameLocation.hash = nextHash;
+      scheduleRelativeNextPreviewCheck();
       return;
     }
   } catch (error) {
@@ -264,6 +268,70 @@ function setNextPreviewPlaceholder(text) {
   if (nextPreviewPlaceholder) {
     nextPreviewPlaceholder.textContent = text;
   }
+}
+
+function setNextPreviewEnd(active) {
+  if (!nextPreviewSection) {
+    return;
+  }
+  nextPreviewSection.classList.toggle("presenter__preview--end", active);
+}
+
+function normalizePreviewHash(hash) {
+  if (!hash) {
+    return "";
+  }
+  const cleaned = hash.replace(/^#/, "").replace(/~(next|prev)$/u, "");
+  return cleaned;
+}
+
+function handleRelativeNextPreviewLoad() {
+  if (!relativeHashPreview || !pendingNextPreviewHash) {
+    return;
+  }
+  if (!nextPreviewFrame || !nextPreviewSection) {
+    return;
+  }
+  let frameHash = null;
+  try {
+    frameHash = nextPreviewFrame.contentWindow?.location?.hash || null;
+  } catch (error) {
+    return;
+  }
+  if (!frameHash) {
+    return;
+  }
+  if (/~(next|prev)$/u.test(frameHash)) {
+    if (relativeNextPreviewAttempts < 10) {
+      relativeNextPreviewAttempts += 1;
+      scheduleRelativeNextPreviewCheck();
+    }
+    return;
+  }
+
+  const resolvedFrameHash = normalizePreviewHash(frameHash);
+  const resolvedPendingHash = normalizePreviewHash(pendingNextPreviewHash);
+  if (resolvedFrameHash === resolvedPendingHash) {
+    setPreviewActive(nextPreviewSection, false);
+    setNextPreviewEnd(true);
+    setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
+    pendingNextPreviewHash = null;
+  } else {
+    setNextPreviewEnd(false);
+  }
+}
+
+function scheduleRelativeNextPreviewCheck() {
+  if (!relativeHashPreview || !pendingNextPreviewHash) {
+    return;
+  }
+  if (relativeNextPreviewTimer) {
+    clearTimeout(relativeNextPreviewTimer);
+  }
+  relativeNextPreviewTimer = setTimeout(() => {
+    relativeNextPreviewTimer = null;
+    handleRelativeNextPreviewLoad();
+  }, 120);
 }
 
 function stripRelativeSuffix(hash) {
@@ -356,22 +424,32 @@ function updateNextPreview({ slideId, hash }) {
   if (lastDisplayCount <= 0) {
     setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
     setPreviewActive(nextPreviewSection, false);
+    setNextPreviewEnd(false);
+    pendingNextPreviewHash = null;
+    relativeNextPreviewAttempts = 0;
     return;
   }
 
   const { hash: nextHash, reason } = resolveNextPreviewInfo({ slideId, hash });
   if (!nextHash) {
     setPreviewActive(nextPreviewSection, false);
+    pendingNextPreviewHash = null;
+    relativeNextPreviewAttempts = 0;
     if (reason === "last") {
+      setNextPreviewEnd(true);
       setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
     } else {
+      setNextPreviewEnd(false);
       setNextPreviewPlaceholder(NEXT_PREVIEW_UNAVAILABLE_TEXT);
     }
     return;
   }
 
+  setNextPreviewEnd(false);
   setPreviewActive(nextPreviewSection, true);
   setNextPreviewPlaceholder(NEXT_PREVIEW_UNAVAILABLE_TEXT);
+  pendingNextPreviewHash = relativeHashPreview ? hash || slideId || "#" : null;
+  relativeNextPreviewAttempts = 0;
   updateNextPreviewFrame(nextHash);
 }
 
@@ -626,6 +704,12 @@ if (previewFrame) {
   previewFrame.addEventListener("load", () => {
     syncTitleFromPreview();
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
+  });
+}
+
+if (nextPreviewFrame) {
+  nextPreviewFrame.addEventListener("load", () => {
+    handleRelativeNextPreviewLoad();
   });
 }
 

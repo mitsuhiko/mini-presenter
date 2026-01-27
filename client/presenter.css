@@ -127,6 +127,17 @@ body {
   pointer-events: none;
 }
 
+.presenter__preview--end .presenter__preview-frame {
+  opacity: 0;
+}
+
+.presenter__preview--end .presenter__placeholder {
+  opacity: 1;
+  background: #000000;
+  color: #e5e7eb;
+  border-radius: 0.75rem;
+}
+
 .presenter__notes {
   border-radius: 1rem;
   background: #0b1224;
