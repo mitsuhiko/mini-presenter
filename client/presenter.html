@@ -17,17 +17,39 @@
         </div>
       </header>
 
-      <section class="presenter__preview" aria-label="Slide preview">
-        <div class="presenter__preview-frame">
-          <iframe
-            id="preview-frame"
-            title="Current slide preview"
-            loading="lazy"
-            referrerpolicy="no-referrer"
-          ></iframe>
+      <section class="presenter__previews" aria-label="Slide previews">
+        <div class="presenter__preview presenter__preview--current">
+          <div class="presenter__preview-title">Current slide</div>
+          <div class="presenter__preview-body">
+            <div class="presenter__preview-frame">
+              <iframe
+                id="preview-frame"
+                title="Current slide preview"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              ></iframe>
+            </div>
+            <div class="presenter__placeholder" id="preview-placeholder">
+              Waiting for display connection…
+            </div>
+          </div>
         </div>
-        <div class="presenter__placeholder" id="preview-placeholder">
-          Waiting for display connection…
+
+        <div class="presenter__preview presenter__preview--next">
+          <div class="presenter__preview-title">Next slide</div>
+          <div class="presenter__preview-body">
+            <div class="presenter__preview-frame">
+              <iframe
+                id="next-preview-frame"
+                title="Next slide preview"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              ></iframe>
+            </div>
+            <div class="presenter__placeholder" id="next-preview-placeholder">
+              Next slide preview unavailable.
+            </div>
+          </div>
         </div>
       </section>
 

@@ -3,8 +3,11 @@ const currentSlideDisplay = document.querySelector("#current-slide");
 const displayCountDisplay = document.querySelector("#display-count");
 const connectionStatus = document.querySelector("#connection-status");
 const previewPlaceholder = document.querySelector("#preview-placeholder");
-const previewSection = document.querySelector(".presenter__preview");
+const previewSection = document.querySelector(".presenter__preview--current");
 const previewFrame = document.querySelector("#preview-frame");
+const nextPreviewPlaceholder = document.querySelector("#next-preview-placeholder");
+const nextPreviewSection = document.querySelector(".presenter__preview--next");
+const nextPreviewFrame = document.querySelector("#next-preview-frame");
 const timerToggleButton = document.querySelector("#timer-toggle");
 const timerResetButton = document.querySelector("#timer-reset");
 const actionButtons = document.querySelectorAll("[data-action]");
@@ -18,6 +21,9 @@ const PREVIEW_QUERY = "_presenter_preview=1";
 const NOTES_LOADING_TEXT = "Loading notes…";
 const NOTES_EMPTY_TEXT = "No notes for this slide.";
 const NOTES_DISABLED_TEXT = "Speaker notes disabled.";
+const NEXT_PREVIEW_WAITING_TEXT = "Waiting for display connection…";
+const NEXT_PREVIEW_UNAVAILABLE_TEXT = "Next slide preview unavailable.";
+const NEXT_PREVIEW_LAST_TEXT = "End of deck.";
 
 const DEFAULT_KEYBOARD = {
   next: ["ArrowRight", "PageDown", " ", "Spacebar"],
@@ -41,6 +47,11 @@ let notesSource = "auto";
 let lastNotesKey = null;
 let notesLoadingKey = null;
 const notesCache = new Map();
+let apiSlideOrder = null;
+let relativeHashPreview = false;
+let nextPreviewHash = null;
+let lastDisplayCount = 0;
+let configTitle = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -94,9 +105,12 @@ function buildKeyboardMap(config) {
 
 function applyConfig(config) {
   const title = typeof config?.title === "string" ? config.title : null;
+  configTitle = title;
   if (title && brandDisplay) {
     brandDisplay.textContent = title;
     document.title = title;
+  } else {
+    syncTitleFromPreview();
   }
 
   const keyboardConfig = normalizeKeyboardConfig(config?.keyboard);
@@ -109,8 +123,12 @@ function applyConfig(config) {
     notesSource = "auto";
   }
 
+  const previewConfig = config?.preview ?? config?.previews ?? {};
+  relativeHashPreview = previewConfig?.relativeHash === true;
+
   if (lastSlideId || lastKnownHash !== "#") {
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
+    updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
   }
 }
 
@@ -183,11 +201,11 @@ function stopTimerInterval() {
   }
 }
 
-function setPreviewActive(active) {
-  if (!previewSection) {
+function setPreviewActive(section, active) {
+  if (!section) {
     return;
   }
-  previewSection.classList.toggle("presenter__preview--active", active);
+  section.classList.toggle("presenter__preview--active", active);
 }
 
 function updatePreview(hash) {
@@ -214,6 +232,147 @@ function updatePreview(hash) {
   }
 
   previewFrame.src = `${previewUrl}${nextHash}`;
+}
+
+function updateNextPreviewFrame(hash) {
+  if (!nextPreviewFrame) {
+    return;
+  }
+
+  const previewUrl = `${location.origin}/?${PREVIEW_QUERY}`;
+  const nextHash = hash || "#";
+
+  if (nextPreviewHash === nextHash && nextPreviewFrame.src) {
+    return;
+  }
+  nextPreviewHash = nextHash;
+
+  try {
+    const frameLocation = nextPreviewFrame.contentWindow?.location;
+    if (frameLocation && frameLocation.origin === location.origin) {
+      frameLocation.hash = nextHash;
+      return;
+    }
+  } catch (error) {
+    // ignore cross-origin/frame not ready
+  }
+
+  nextPreviewFrame.src = `${previewUrl}${nextHash}`;
+}
+
+function setNextPreviewPlaceholder(text) {
+  if (nextPreviewPlaceholder) {
+    nextPreviewPlaceholder.textContent = text;
+  }
+}
+
+function stripRelativeSuffix(hash) {
+  if (!hash) {
+    return hash;
+  }
+  return hash.replace(/~(next|prev)$/u, "");
+}
+
+function findSlideIndex(order, hash) {
+  if (!Array.isArray(order) || !hash) {
+    return -1;
+  }
+  const baseHash = stripRelativeSuffix(hash);
+  return order.findIndex((entry) => {
+    if (typeof entry !== "string") {
+      return false;
+    }
+    if (baseHash === entry) {
+      return true;
+    }
+    return baseHash.startsWith(`${entry}.`);
+  });
+}
+
+function syncTitleFromPreview() {
+  if (configTitle || !previewFrame || !brandDisplay) {
+    return;
+  }
+  try {
+    const title = previewFrame.contentDocument?.title;
+    if (title) {
+      brandDisplay.textContent = title;
+      document.title = title;
+    }
+  } catch (error) {
+    // ignore cross-origin/frame not ready
+  }
+}
+
+function getSlideOrderFromPreview() {
+  if (apiSlideOrder || !previewFrame) {
+    return apiSlideOrder;
+  }
+  try {
+    const api = previewFrame.contentWindow?.miniPresenter;
+    if (api && typeof api.getSlideList === "function") {
+      const list = api.getSlideList();
+      if (Array.isArray(list)) {
+        const filtered = list.filter((entry) => typeof entry === "string");
+        apiSlideOrder = filtered.length > 0 ? filtered : null;
+      }
+    }
+  } catch (error) {
+    return apiSlideOrder;
+  }
+  return apiSlideOrder;
+}
+
+function resolveNextPreviewInfo({ slideId, hash }) {
+  const baseHash = stripRelativeSuffix(hash || slideId || "#");
+  if (!baseHash) {
+    return { hash: null, reason: "unavailable" };
+  }
+
+  if (relativeHashPreview) {
+    return { hash: `${baseHash}~next`, reason: null };
+  }
+
+  const order = getSlideOrderFromPreview();
+  if (!order) {
+    return { hash: null, reason: "unavailable" };
+  }
+
+  const index = findSlideIndex(order, baseHash);
+  if (index === -1) {
+    return { hash: null, reason: "unavailable" };
+  }
+  if (index >= order.length - 1) {
+    return { hash: null, reason: "last" };
+  }
+  return { hash: order[index + 1], reason: null };
+}
+
+function updateNextPreview({ slideId, hash }) {
+  if (!nextPreviewFrame || !nextPreviewPlaceholder || !nextPreviewSection) {
+    return;
+  }
+
+  if (lastDisplayCount <= 0) {
+    setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
+    setPreviewActive(nextPreviewSection, false);
+    return;
+  }
+
+  const { hash: nextHash, reason } = resolveNextPreviewInfo({ slideId, hash });
+  if (!nextHash) {
+    setPreviewActive(nextPreviewSection, false);
+    if (reason === "last") {
+      setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
+    } else {
+      setNextPreviewPlaceholder(NEXT_PREVIEW_UNAVAILABLE_TEXT);
+    }
+    return;
+  }
+
+  setPreviewActive(nextPreviewSection, true);
+  setNextPreviewPlaceholder(NEXT_PREVIEW_UNAVAILABLE_TEXT);
+  updateNextPreviewFrame(nextHash);
 }
 
 function setNotesDisplay(content, status) {
@@ -318,14 +477,17 @@ function updateSlideState({ slideId, hash, displays, notes }) {
   lastKnownHash = nextHash;
   updatePreview(nextHash);
   updateNotes({ slideId, hash: nextHash, notes });
+  updateNextPreview({ slideId, hash: nextHash });
 
   if (typeof displays === "number") {
+    lastDisplayCount = displays;
     displayCountDisplay.textContent = displays;
     previewPlaceholder.textContent =
       displays > 0
         ? "Display connected. Presenter controls are active."
         : "Waiting for display connection…";
-    setPreviewActive(displays > 0);
+    setPreviewActive(previewSection, displays > 0);
+    setPreviewActive(nextPreviewSection, displays > 0);
   }
 
   if (stateKey !== lastSlideId) {
@@ -357,14 +519,17 @@ function handleMessage(event) {
   }
 
   if (message.type === "sync") {
+    lastDisplayCount = message.displays;
     displayCountDisplay.textContent = message.displays;
     previewPlaceholder.textContent =
       message.displays > 0
         ? "Display connected. Presenter controls are active."
         : "Waiting for display connection…";
-    setPreviewActive(message.displays > 0);
+    setPreviewActive(previewSection, message.displays > 0);
+    setPreviewActive(nextPreviewSection, message.displays > 0);
     updatePreview(lastKnownHash);
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
+    updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
   }
 }
 
@@ -457,6 +622,13 @@ actionButtons.forEach((button) => {
   });
 });
 
+if (previewFrame) {
+  previewFrame.addEventListener("load", () => {
+    syncTitleFromPreview();
+    updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
+  });
+}
+
 timerToggleButton.addEventListener("click", toggleTimer);
 
 timerResetButton.addEventListener("click", () => {
@@ -468,9 +640,11 @@ document.addEventListener("keydown", handleKeyboard);
 updateTimerDisplay();
 updateConnectionStatus(false);
 ensureTimerInterval();
-setPreviewActive(false);
+setPreviewActive(previewSection, false);
+setPreviewActive(nextPreviewSection, false);
 updatePreview(lastKnownHash);
 setNotesDisplay("Waiting for slide updates…", "Idle");
+setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 connect();
 
 window.addEventListener("beforeunload", () => {

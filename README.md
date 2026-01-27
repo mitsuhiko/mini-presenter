@@ -27,14 +27,16 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
   "notes": {
     "source": "files"
   },
-  "slides": ["#intro", "#slide-1", "#slide-2"]
+  "preview": {
+    "relativeHash": true
+  }
 }
 ```
 
-- `title`: Updates the presenter header and browser title.
+- `title`: Optional presenter title (defaults to the slideshow `<title>`).
 - `keyboard`: Custom key bindings for presenter navigation.
 - `notes.source`: `api`, `files`, or `none` (default: `api` + file fallback).
-- `slides`: Optional explicit slide order (reserved for future features).
+- `preview.relativeHash`: Enable `#<hash>~next` preview resolution.
 
 The config is available at `/_/api/config`.
 
@@ -52,3 +54,11 @@ File mapping examples:
 - `#intro` → `notes/#intro.md`
 
 Notes are fetched from `/_/api/notes?hash=%23intro` and rendered as pre-wrapped text.
+
+## Next slide preview
+
+The presenter shows a next-slide preview when it can determine the slide order from
+`window.miniPresenter.getSlideList()` in your deck (returns an array of hashes).
+
+If `preview.relativeHash` is enabled, the preview iframe loads `#<hash>~next` and expects
+slide logic in your deck to resolve it to the next state (including build steps).

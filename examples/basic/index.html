@@ -186,42 +186,77 @@
         }
       }
 
-      function syncFromHash() {
-        const rawValue = window.location.hash.replace("#", "");
+      function parseHash(rawValue) {
         const [slideValue, stepValue] = rawValue.split(".");
         const slideNumber = Number.parseInt(slideValue, 10);
         const index = Number.isNaN(slideNumber)
           ? 0
           : slides.findIndex((slide) => Number(slide.dataset.slide) === slideNumber);
         const parsedStep = Number.parseInt(stepValue, 10);
-        stepIndex = Number.isNaN(parsedStep) ? 0 : parsedStep;
-        showSlide(index === -1 ? 0 : index, { updateHash: false });
+        return {
+          index: index === -1 ? 0 : index,
+          step: Number.isNaN(parsedStep) ? 0 : parsedStep,
+        };
       }
 
-      function next() {
+      function resolveRelativeHash(rawValue) {
+        const match = rawValue.match(/^(.*)~(next|prev)$/);
+        if (!match) {
+          return false;
+        }
+        const [, baseValue, direction] = match;
+        const baseState = baseValue
+          ? parseHash(baseValue)
+          : { index: slideIndex, step: stepIndex };
+        slideIndex = clamp(baseState.index, 0, slides.length - 1);
+        stepIndex = Math.max(0, baseState.step);
+        showSlide(slideIndex, { updateHash: false });
+        if (direction === "next") {
+          next({ updateHash: true });
+        } else {
+          prev({ updateHash: true });
+        }
+        return true;
+      }
+
+      function syncFromHash() {
+        const rawValue = window.location.hash.replace("#", "");
+        if (resolveRelativeHash(rawValue)) {
+          return;
+        }
+        const parsed = parseHash(rawValue);
+        stepIndex = parsed.step;
+        showSlide(parsed.index, { updateHash: false });
+      }
+
+      function next({ updateHash: shouldUpdateHash = true } = {}) {
         const steps = Array.from(slides[slideIndex].querySelectorAll(".step"));
         if (stepIndex < steps.length) {
           stepIndex += 1;
           applySteps(slides[slideIndex]);
-          updateHash();
+          if (shouldUpdateHash) {
+            updateHash();
+          }
           return;
         }
         stepIndex = 0;
-        showSlide(slideIndex + 1);
+        showSlide(slideIndex + 1, { updateHash: shouldUpdateHash });
       }
 
-      function prev() {
+      function prev({ updateHash: shouldUpdateHash = true } = {}) {
         if (stepIndex > 0) {
           stepIndex -= 1;
           applySteps(slides[slideIndex]);
-          updateHash();
+          if (shouldUpdateHash) {
+            updateHash();
+          }
           return;
         }
         const nextIndex = clamp(slideIndex - 1, 0, slides.length - 1);
         slideIndex = nextIndex;
         const steps = Array.from(slides[slideIndex].querySelectorAll(".step"));
         stepIndex = steps.length;
-        showSlide(slideIndex);
+        showSlide(slideIndex, { updateHash: shouldUpdateHash });
       }
 
       window.addEventListener("hashchange", syncFromHash);
@@ -235,6 +270,15 @@
           prev();
         }
       });
+
+      window.miniPresenter = {
+        getSlideList() {
+          return slides.map((slide) => `#${slide.dataset.slide}`);
+        },
+        getCurrentSlide() {
+          return window.location.hash || `#${slides[slideIndex].dataset.slide}`;
+        },
+      };
 
       syncFromHash();
     </script>

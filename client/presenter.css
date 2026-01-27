@@ -48,19 +48,40 @@ body {
   color: #d1d5db;
 }
 
+.presenter__previews {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
 .presenter__preview {
   border-radius: 1rem;
   background: #0f172a;
   border: 1px solid #1f2937;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
+  flex-direction: column;
+  padding: 1.5rem;
   text-align: center;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   color: #9ca3af;
   position: relative;
   overflow: hidden;
+  min-height: 14rem;
+}
+
+.presenter__preview-title {
+  text-align: left;
+  font-weight: 600;
+  color: #f9fafb;
+  margin-bottom: 1rem;
+}
+
+.presenter__preview-body {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .presenter__preview-frame {
