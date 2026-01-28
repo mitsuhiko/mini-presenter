@@ -1,6 +1,6 @@
 {
   "name": "mini-presenter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lightweight presentation helper with presenter view, speaker notes, and timer",
   "type": "module",
   "keywords": [

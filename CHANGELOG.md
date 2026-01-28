@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - Added support for serving presentations from remote URLs.
 
 ## 0.2.0
