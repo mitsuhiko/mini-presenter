@@ -143,3 +143,15 @@ The presenter shows a next-slide preview when it can determine the slide order f
 
 If `preview.relativeHash` is enabled, the preview iframe loads `#<hash>~next` and expects
 slide logic in your deck to resolve it to the next state (including build steps).
+
+## AI Use Disclaimer
+
+**Note:** this library was 100% AI generated with Claude Code. I will try to fix
+it up as good as possible as I ran into issues, but I cannot vouch for the
+quality of it.
+
+## License and Links
+
+- [Issue Tracker](https://github.com/mitsuhiko/mini-presenter/issues)
+- [Discussions](https://github.com/mitsuhiko/mini-presenter/discussions)
+- License: [Apache-2.0](https://github.com/mitsuhiko/mini-presenter/blob/main/LICENSE)
