@@ -8,14 +8,61 @@ import qrcode from "qrcode-terminal";
 import { exportPresentation } from "../src/export.js";
 import { startServer } from "../src/server.js";
 
+import fs from "node:fs";
+
 const args = process.argv.slice(2);
 const command = args[0] === "export" ? "export" : "serve";
+
+const pkgPath = new URL("../package.json", import.meta.url);
+const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+
+function printHelp() {
+  console.log(`mini-presenter ${pkg.version}
+
+Lightweight presentation helper with presenter view
+
+Usage:
+  mini-presenter [options] <path>
+  mini-presenter export [options] <path>
+
+Commands:
+  (default)   Start the presentation server
+  export      Export slides to PDF or PNG
+
+Server options:
+  -p, --port <port>   Port to listen on (default: 8080)
+  -w, --watch         Watch for file changes and auto-reload
+  --funnel            Create a cloudflare tunnel for remote access
+
+Export options:
+  -o, --output <path>      Output file (PDF) or directory (PNG) [required]
+  --format <pdf|png>       Output format (default: pdf)
+  --delay <ms>             Delay between slides in ms (default: 300)
+  --chrome-port <port>     Chrome DevTools port (default: 9222)
+  --port <port>            Local server port (default: random)
+
+General options:
+  -h, --help          Show this help message
+  -V, --version       Show version number
+
+Examples:
+  mini-presenter ./slides
+  mini-presenter ./slides --port 3000 --watch
+  mini-presenter export ./slides -o presentation.pdf
+  mini-presenter export ./slides -o ./images --format png
+`);
+}
+
+function printVersion() {
+  console.log(pkg.version);
+}
 
 function usage() {
   console.log(
     "Usage:\n" +
       "  mini-presenter <path> [--port <port>] [--watch] [--funnel]\n" +
-      "  mini-presenter export <path> --output <file|dir> [--format pdf|png] [--delay <ms>] [--chrome-port <port>]"
+      "  mini-presenter export <path> --output <file|dir> [--format pdf|png] [--delay <ms>] [--chrome-port <port>]\n\n" +
+      "Run 'mini-presenter --help' for more information."
   );
 }
 
@@ -282,6 +329,17 @@ async function runExportCommand() {
     process.exit(1);
   }
   console.log(`Export completed: ${resolvedOutput}`);
+}
+
+// Handle global flags
+if (args.includes("--help") || args.includes("-h")) {
+  printHelp();
+  process.exit(0);
+}
+
+if (args.includes("--version") || args.includes("-V")) {
+  printVersion();
+  process.exit(0);
 }
 
 if (command === "export") {

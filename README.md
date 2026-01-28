@@ -21,11 +21,20 @@ special marker hashes you can also have next slide previews.
 - Optional file watching with auto-reload.
 - Optional Cloudflare tunnel via `cloudflared` for sharing previews.
 
+## Installation
+
+```bash
+# Run directly with npx (no install needed)
+npx mini-presenter path/to/deck
+
+# Or install globally
+npm install -g mini-presenter
+```
+
 ## Quick start
 
 ```bash
-npm install
-node ./bin/mini-presenter.js path/to/deck --port 8080 --watch --funnel
+npx mini-presenter path/to/deck --port 8080 --watch --funnel
 ```
 
 - Slides: `http://localhost:8080/`
@@ -39,8 +48,8 @@ Use `--funnel` to create an anonymous Cloudflare tunnel (requires `cloudflared`)
 The exporter will start a dedicated Chrome instance with remote debugging automatically.
 
 ```bash
-mini-presenter export ./slides --output slides.pdf
-mini-presenter export ./slides --output ./images --format png --delay 500
+npx mini-presenter export ./slides --output slides.pdf
+npx mini-presenter export ./slides --output ./images --format png --delay 500
 ```
 
 ## Basic requirements for slide decks

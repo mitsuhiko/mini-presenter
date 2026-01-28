@@ -1,12 +1,36 @@
 {
   "name": "mini-presenter",
   "version": "0.1.0",
-  "description": "Lightweight presentation helper with presenter view",
+  "description": "Lightweight presentation helper with presenter view, speaker notes, and timer",
   "type": "module",
+  "keywords": [
+    "presentation",
+    "slides",
+    "presenter",
+    "speaker-notes",
+    "slideshow"
+  ],
+  "author": "Armin Ronacher",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mitsuhiko/mini-presenter.git"
+  },
+  "homepage": "https://github.com/mitsuhiko/mini-presenter#readme",
+  "bugs": {
+    "url": "https://github.com/mitsuhiko/mini-presenter/issues"
+  },
   "bin": {
     "mini-presenter": "./bin/mini-presenter.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "client"
+  ],
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node ./bin/mini-presenter.js examples/basic"
   },
