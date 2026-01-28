@@ -5,6 +5,7 @@
   if (isPresenterPreview) {
     markPresenterPreview();
     mutePresenterPreviewAudio();
+    enablePresenterPreviewMessaging();
     return;
   }
 
@@ -72,6 +73,33 @@
         muteAll();
       });
       observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  }
+
+  function enablePresenterPreviewMessaging() {
+    const sendReady = () => {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: "miniPresenterPreviewReady" }, "*");
+      }
+    };
+
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent) {
+        return;
+      }
+      const payload = event.data;
+      if (!payload || payload.type !== "miniPresenterPreview" || payload.action !== "goto") {
+        return;
+      }
+      if (typeof payload.hash === "string" && location.hash !== payload.hash) {
+        location.hash = payload.hash;
+      }
+    });
+
+    if (document.readyState === "complete") {
+      sendReady();
+    } else {
+      window.addEventListener("load", sendReady, { once: true });
     }
   }
 

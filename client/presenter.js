@@ -82,6 +82,8 @@ let lastTick = 0;
 let lastSlideId = null;
 let lastKnownHash = "#";
 let previewHash = null;
+let previewReady = false;
+let nextPreviewReady = false;
 let keyboardMap = new Map();
 let notesSource = "auto";
 let lastNotesKey = null;
@@ -252,18 +254,50 @@ function setPreviewActive(section, active) {
   section.classList.toggle("presenter__preview--active", active);
 }
 
+function sendPreviewNavigation(frame, hash) {
+  if (!frame || !frame.contentWindow) {
+    return false;
+  }
+  frame.contentWindow.postMessage(
+    { type: "miniPresenterPreview", action: "goto", hash },
+    "*"
+  );
+  return true;
+}
+
+function setPreviewFrameSrc(frame, hash, isNext) {
+  if (!frame) {
+    return;
+  }
+  const previewUrl = `${location.origin}/?${PREVIEW_QUERY}`;
+  frame.src = `${previewUrl}${hash}`;
+  if (isNext) {
+    nextPreviewReady = false;
+  } else {
+    previewReady = false;
+  }
+}
+
 function updatePreview(hash) {
   if (!previewFrame) {
     return;
   }
 
-  const previewUrl = `${location.origin}/?${PREVIEW_QUERY}`;
   const nextHash = hash || "#";
 
   if (previewHash === nextHash && previewFrame.src) {
     return;
   }
   previewHash = nextHash;
+
+  if (!previewFrame.src) {
+    setPreviewFrameSrc(previewFrame, nextHash, false);
+    return;
+  }
+
+  if (previewReady && sendPreviewNavigation(previewFrame, nextHash)) {
+    return;
+  }
 
   try {
     const frameLocation = previewFrame.contentWindow?.location;
@@ -275,7 +309,7 @@ function updatePreview(hash) {
     // ignore cross-origin/frame not ready
   }
 
-  previewFrame.src = `${previewUrl}${nextHash}`;
+  setPreviewFrameSrc(previewFrame, nextHash, false);
 }
 
 function updateNextPreviewFrame(hash) {
@@ -283,13 +317,22 @@ function updateNextPreviewFrame(hash) {
     return;
   }
 
-  const previewUrl = `${location.origin}/?${PREVIEW_QUERY}`;
   const nextHash = hash || "#";
 
   if (nextPreviewHash === nextHash && nextPreviewFrame.src) {
     return;
   }
   nextPreviewHash = nextHash;
+
+  if (!nextPreviewFrame.src) {
+    setPreviewFrameSrc(nextPreviewFrame, nextHash, true);
+    return;
+  }
+
+  if (nextPreviewReady && sendPreviewNavigation(nextPreviewFrame, nextHash)) {
+    scheduleRelativeNextPreviewCheck();
+    return;
+  }
 
   try {
     const frameLocation = nextPreviewFrame.contentWindow?.location;
@@ -302,7 +345,7 @@ function updateNextPreviewFrame(hash) {
     // ignore cross-origin/frame not ready
   }
 
-  nextPreviewFrame.src = `${previewUrl}${nextHash}`;
+  setPreviewFrameSrc(nextPreviewFrame, nextHash, true);
 }
 
 function setNextPreviewPlaceholder(text) {
@@ -790,8 +833,22 @@ actionButtons.forEach((button) => {
   });
 });
 
+window.addEventListener("message", (event) => {
+  const payload = event.data;
+  if (!payload || payload.type !== "miniPresenterPreviewReady") {
+    return;
+  }
+  if (previewFrame && event.source === previewFrame.contentWindow) {
+    previewReady = true;
+  }
+  if (nextPreviewFrame && event.source === nextPreviewFrame.contentWindow) {
+    nextPreviewReady = true;
+  }
+});
+
 if (previewFrame) {
   previewFrame.addEventListener("load", () => {
+    previewReady = false;
     syncTitleFromPreview();
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
   });
@@ -799,6 +856,7 @@ if (previewFrame) {
 
 if (nextPreviewFrame) {
   nextPreviewFrame.addEventListener("load", () => {
+    nextPreviewReady = false;
     handleRelativeNextPreviewLoad();
   });
 }

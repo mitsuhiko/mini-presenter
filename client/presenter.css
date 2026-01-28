@@ -56,10 +56,23 @@ body {
 
 .presenter {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 100vh;
   padding: 2rem;
   gap: 1.5rem;
+}
+
+.presenter__main {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.presenter__side {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .presenter__header {
@@ -94,12 +107,6 @@ body {
   color: var(--presenter-text-muted);
 }
 
-.presenter__previews {
-  display: grid;
-  gap: 1.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-}
-
 .presenter__preview {
   border-radius: 1rem;
   background: var(--presenter-preview-bg);
@@ -112,7 +119,17 @@ body {
   color: var(--presenter-text-subtle);
   position: relative;
   overflow: hidden;
-  min-height: 14rem;
+  min-height: 12rem;
+}
+
+.presenter__preview--current {
+  min-height: clamp(20rem, 56vh, 42rem);
+}
+
+.presenter__preview--next {
+  min-height: 9rem;
+  font-size: 0.95rem;
+  padding: 1.1rem;
 }
 
 .presenter__preview-title {
@@ -226,16 +243,15 @@ body {
 
 .presenter__controls {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .presenter__nav,
 .presenter__timer-controls {
-  display: flex;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
 .presenter__button {
@@ -260,10 +276,9 @@ body {
 
 .presenter__footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
   font-size: 0.95rem;
   color: var(--presenter-text-muted);
 }
@@ -297,8 +312,12 @@ body {
     gap: 0.35rem;
   }
 
-  .presenter__previews {
+  .presenter__main {
     grid-template-columns: 1fr;
+  }
+
+  .presenter__side {
+    gap: 1rem;
   }
 
   .presenter__preview {
@@ -321,8 +340,6 @@ body {
   }
 
   .presenter__controls {
-    flex-direction: column;
-    align-items: stretch;
     position: sticky;
     bottom: 0;
     background: var(--presenter-bg);
