@@ -1,3 +1,9 @@
-# 0.1.0
+# Changelog
 
-- Initial version
+## 0.2.0
+
+- Switch to Apache 2.
+
+## 0.1.0
+
+- Initial release.
