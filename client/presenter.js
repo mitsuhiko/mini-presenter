@@ -95,6 +95,7 @@ let configTitle = null;
 let pendingNextPreviewHash = null;
 let relativeNextPreviewTimer = null;
 let relativeNextPreviewAttempts = 0;
+let relativeNextPreviewEndHash = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -356,6 +357,7 @@ function handleRelativeNextPreviewLoad() {
     setNextPreviewEnd(true);
     setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
     pendingNextPreviewHash = null;
+    relativeNextPreviewEndHash = resolvedFrameHash || resolvedPendingHash;
   } else {
     setNextPreviewEnd(false);
   }
@@ -386,12 +388,15 @@ function findSlideIndex(order, hash) {
     return -1;
   }
   const baseHash = stripRelativeSuffix(hash);
+  const exactIndex = order.findIndex(
+    (entry) => typeof entry === "string" && entry === baseHash
+  );
+  if (exactIndex !== -1) {
+    return exactIndex;
+  }
   return order.findIndex((entry) => {
     if (typeof entry !== "string") {
       return false;
-    }
-    if (baseHash === entry) {
-      return true;
     }
     return baseHash.startsWith(`${entry}.`);
   });
@@ -437,11 +442,18 @@ function resolveNextPreviewInfo({ slideId, hash }) {
     return { hash: null, reason: "unavailable" };
   }
 
+  const order = getSlideOrderFromPreview();
+
   if (relativeHashPreview) {
+    if (order) {
+      const index = findSlideIndex(order, baseHash);
+      if (index !== -1 && index >= order.length - 1) {
+        return { hash: null, reason: "last" };
+      }
+    }
     return { hash: `${baseHash}~next`, reason: null };
   }
 
-  const order = getSlideOrderFromPreview();
   if (!order) {
     return { hash: null, reason: "unavailable" };
   }
@@ -470,6 +482,20 @@ function updateNextPreview({ slideId, hash }) {
     return;
   }
 
+  const normalizedHash = normalizePreviewHash(hash || slideId || "#");
+  if (relativeNextPreviewEndHash && normalizedHash !== relativeNextPreviewEndHash) {
+    relativeNextPreviewEndHash = null;
+  }
+
+  if (relativeHashPreview && relativeNextPreviewEndHash && normalizedHash) {
+    setPreviewActive(nextPreviewSection, false);
+    pendingNextPreviewHash = null;
+    relativeNextPreviewAttempts = 0;
+    setNextPreviewEnd(true);
+    setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
+    return;
+  }
+
   const { hash: nextHash, reason } = resolveNextPreviewInfo({ slideId, hash });
   if (!nextHash) {
     setPreviewActive(nextPreviewSection, false);
@@ -478,6 +504,9 @@ function updateNextPreview({ slideId, hash }) {
     if (reason === "last") {
       setNextPreviewEnd(true);
       setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
+      if (relativeHashPreview && normalizedHash) {
+        relativeNextPreviewEndHash = normalizedHash;
+      }
     } else {
       setNextPreviewEnd(false);
       setNextPreviewPlaceholder(NEXT_PREVIEW_UNAVAILABLE_TEXT);
