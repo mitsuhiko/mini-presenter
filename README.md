@@ -158,7 +158,7 @@ slide logic in your deck to resolve it to the next state (including build steps)
 
 ## AI Use Disclaimer
 
-**Note:** this library was 100% AI generated with Claude Code. I will try to fix
+**Note:** this library was 100% AI generated with Pi. I will try to fix
 it up as good as possible as I ran into issues, but I cannot vouch for the
 quality of it.
 
