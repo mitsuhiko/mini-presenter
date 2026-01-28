@@ -35,10 +35,13 @@ npm install -g mini-presenter
 
 ```bash
 npx mini-presenter path/to/deck --port 8080 --watch --funnel
+npx mini-presenter https://mitsuhiko.github.io/talks/i-was-questioning-life/
 ```
 
 - Slides: `http://localhost:8080/`
 - Presenter view: `http://localhost:8080/_/presenter`
+
+When you pass a URL, mini-presenter proxies the remote site through the local server. File watching is only available for local folders.
 
 Use `--watch` to enable file watching and auto-reload on HTML/CSS/JS changes.
 Use `--funnel` to create an anonymous Cloudflare tunnel (requires `cloudflared`).
@@ -56,7 +59,7 @@ npx mini-presenter export ./slides --output ./images --format png --delay 500
 
 Your presentation can be plain HTML/CSS/JS as long as it cooperates with navigation and state reporting:
 
-- **Served from a local folder.** mini-presenter serves the folder you pass on the CLI and injects its script into any HTML file.
+- **Served from a local folder or URL.** mini-presenter serves the folder or proxies the URL you pass on the CLI and injects its script into any HTML file.
 - **Expose a current slide identifier.** The injected script uses `window.miniPresenter.getCurrentSlide()` if available. Otherwise it falls back to `location.hash`.
 - **React to navigation commands.** The presenter sends `next`, `prev`, `first`, `last`, and `goto` actions. Implement the mini-presenter API (below) _or_ listen for keyboard events (`ArrowRight`, `ArrowLeft`, `Home`, `End`) and update the slide state yourself.
 - **Update the URL hash.** This is the easiest way to keep the presenter preview and notes aligned. When the current slide changes, update `location.hash` (or implement `getCurrentSlide()`).
@@ -86,6 +89,15 @@ window.miniPresenter = {
 - `getSlideList()` enables the next-slide preview.
 - `getNotes(slideId)` provides speaker notes directly from the deck.
 - If you don’t expose these hooks, the presenter falls back to URL hash updates and keyboard events.
+
+## Presenter preview context
+The presenter view loads slide previews in iframes with `?_presenter_preview=1`.
+When that query param is present, the injected script:
+- sets `window.miniPresenter.isPresenterPreview = true`
+- sets `document.documentElement.dataset.presenterPreview = "true"`
+- mutes all `<audio>`/`<video>` elements so previews stay silent
+
+Use this flag to disable autoplay audio or heavyweight effects in the presenter view.
 
 ## Configuration (`presenter.json`)
 

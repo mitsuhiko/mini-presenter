@@ -244,6 +244,7 @@ async function captureSlides({
 
 export async function exportPresentation({
   rootDir,
+  rootUrl,
   outputPath,
   delay = 300,
   format = "pdf",
@@ -253,6 +254,7 @@ export async function exportPresentation({
 }) {
   const server = await startServer({
     rootDir,
+    rootUrl,
     port,
     watch: false,
     quiet: true,

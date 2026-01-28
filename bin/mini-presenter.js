@@ -22,8 +22,8 @@ function printHelp() {
 Lightweight presentation helper with presenter view
 
 Usage:
-  mini-presenter [options] <path>
-  mini-presenter export [options] <path>
+  mini-presenter [options] <path|url>
+  mini-presenter export [options] <path|url>
 
 Commands:
   (default)   Start the presentation server
@@ -60,14 +60,27 @@ function printVersion() {
 function usage() {
   console.log(
     "Usage:\n" +
-      "  mini-presenter <path> [--port <port>] [--watch] [--funnel]\n" +
-      "  mini-presenter export <path> --output <file|dir> [--format pdf|png] [--delay <ms>] [--chrome-port <port>]\n\n" +
+      "  mini-presenter <path|url> [--port <port>] [--watch] [--funnel]\n" +
+      "  mini-presenter export <path|url> --output <file|dir> [--format pdf|png] [--delay <ms>] [--chrome-port <port>]\n\n" +
       "Run 'mini-presenter --help' for more information."
   );
 }
 
 function generatePresenterKey() {
   return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
+
+function resolvePresentationTarget(targetPath) {
+  try {
+    const url = new URL(targetPath);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return { rootUrl: url.toString() };
+    }
+  } catch (error) {
+    // ignore invalid URL
+  }
+
+  return { rootDir: path.resolve(process.cwd(), targetPath) };
 }
 
 function buildPresenterUrl(baseUrl, { presenterKey, includeKey = false } = {}) {
@@ -185,11 +198,16 @@ async function runServeCommand() {
     process.exit(1);
   }
 
-  const rootDir = path.resolve(process.cwd(), targetPath);
+  const target = resolvePresentationTarget(targetPath);
   const presenterKey = generatePresenterKey();
 
+  if (target.rootUrl && watch) {
+    console.warn("--watch is disabled for remote URLs");
+    watch = false;
+  }
+
   const server = await startServer({
-    rootDir,
+    ...target,
     port,
     watch,
     quiet: true,
@@ -306,7 +324,7 @@ async function runExportCommand() {
     process.exit(1);
   }
 
-  const rootDir = path.resolve(process.cwd(), targetPath);
+  const target = resolvePresentationTarget(targetPath);
   const resolvedOutput = path.resolve(process.cwd(), outputPath);
 
   if (format === "png" && resolvedOutput.endsWith(".png")) {
@@ -317,7 +335,7 @@ async function runExportCommand() {
   console.log("Exporting slides...");
   try {
     await exportPresentation({
-      rootDir,
+      ...target,
       outputPath: resolvedOutput,
       delay,
       format,
