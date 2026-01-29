@@ -7,6 +7,10 @@
 mini-presenter is a tiny local server that injects a display helper into your
 slides and provides a presenter view with timers, notes, and previews.
 
+<div align="center">
+  <img src="./presenter.png" alt="Presenter view screenshot" width="80%" />
+</div>
+
 This should allow you to present almost any website as a slideshow for as long
 as it has anchors per slide and build step.  With a bit of extra support for
 special marker hashes you can also have next slide previews.
@@ -15,6 +19,7 @@ special marker hashes you can also have next slide previews.
 
 - Injected display script keeps the presenter view in sync.
 - Presenter dashboard with current slide preview, timer, and connection status.
+- Built-in laser pointer and drawing tools.
 - Optional next-slide preview when your deck exposes slide order.
 - Speaker notes via deck API or Markdown files.
 - Configurable keyboard shortcuts.
