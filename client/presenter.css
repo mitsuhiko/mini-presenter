@@ -107,14 +107,16 @@ body {
 
 .presenter__timer {
   font-variant-numeric: tabular-nums;
-  font-size: 1.4rem;
+  font-size: 2rem;
   font-weight: 700;
 }
 
 .presenter__slide {
   color: var(--presenter-text-muted);
-  font-size: 1.05rem;
-  font-weight: 600;
+  font-size: 2rem;
+  font-weight: 700;
+  text-align: right;
+  margin-left: auto;
 }
 
 .presenter__preview {
@@ -253,15 +255,17 @@ body {
 
 .presenter__controls {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .presenter__nav,
 .presenter__timer-controls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  display: contents;
+}
+
+.presenter__controls .presenter__button {
+  flex: 1 1 9.5rem;
 }
 
 .presenter__button {
@@ -305,6 +309,7 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
   font-size: 1.05rem;
   color: var(--presenter-text-muted);
 }
@@ -315,6 +320,11 @@ body {
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.presenter__footer-meta {
+  width: 100%;
+  justify-content: space-between;
 }
 
 .presenter__connection {
@@ -372,29 +382,10 @@ body {
     padding: 0.5rem 0 calc(0.75rem + env(safe-area-inset-bottom));
   }
 
-  .presenter__nav,
-  .presenter__timer-controls {
-    width: 100%;
-  }
-
-  .presenter__nav {
-    gap: 0.75rem;
-  }
-
-  .presenter__nav .presenter__button {
-    flex: 1;
-    width: 100%;
-    font-size: 1.25rem;
-    padding: 1.2rem 1.5rem;
-  }
-
-  .presenter__timer-controls {
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .presenter__timer-controls .presenter__button {
-    flex: 1;
+  .presenter__controls .presenter__button {
+    flex: 1 1 10rem;
+    font-size: 1.15rem;
+    padding: 1.05rem 1.25rem;
   }
 
   .presenter__footer {

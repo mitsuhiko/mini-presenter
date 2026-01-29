@@ -117,6 +117,10 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
   },
   "preview": {
     "relativeHash": true
+  },
+  "timer": {
+    "mode": "countdown",
+    "durationMinutes": 30
   }
 }
 ```
@@ -125,6 +129,10 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
 - `keyboard`: Custom key bindings for presenter navigation.
 - `notes.source`: `api`, `files`, or `none` (default: `api` + file fallback).
 - `preview.relativeHash`: Enable `#<hash>~next` preview resolution.
+- `timer.mode`: `countup` (default) or `countdown`.
+- `timer.durationMinutes` / `timer.durationSeconds`: Total countdown duration.
+  The countdown starts after leaving the first slide and can be started manually
+  with the presenter timer button.
 
 The config is available at `/_/api/config`.
 

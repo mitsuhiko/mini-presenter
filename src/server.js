@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { injectPresenterScript } from "./injector.js";
 import { watchDirectory } from "./watcher.js";
@@ -257,6 +258,8 @@ export async function startServer({
     rootDir,
     rootUrl: normalizedRootUrl,
   });
+  const sessionId = randomUUID();
+  const mergedConfig = { ...(presenterConfig ?? {}), sessionId };
   const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.statusCode = 405;
@@ -310,7 +313,7 @@ export async function startServer({
       }
 
       if (pathname === "/_/api/config") {
-        sendJson(res, presenterConfig ?? {}, req.method);
+        sendJson(res, mergedConfig, req.method);
         return;
       }
 
@@ -371,7 +374,7 @@ export async function startServer({
   });
 
   const hub = createWebSocketHub(server, {
-    config: presenterConfig,
+    config: mergedConfig,
     presenterKey,
   });
 

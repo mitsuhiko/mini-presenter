@@ -8,6 +8,7 @@ class Hub {
     this.presenters = new Set();
     this.currentState = null;
     this.config = config ?? null;
+    this.sessionId = config?.sessionId ?? null;
     this.presenterKey = presenterKey ?? null;
 
     this.wss.on("connection", (ws, req) => {
@@ -35,6 +36,10 @@ class Hub {
     }
 
     if (message.type === "state" && ws.role === "display") {
+      if (this.sessionId && message.sessionId && message.sessionId !== this.sessionId) {
+        this.broadcastReload({ preserveHash: false });
+        return;
+      }
       this.currentState = { ...message };
       this.broadcast(this.presenters, {
         ...message,
@@ -45,6 +50,11 @@ class Hub {
 
     if (message.type === "command" && ws.role === "presenter") {
       this.handleCommand(message);
+      return;
+    }
+
+    if (message.type === "reload" && ws.role === "presenter") {
+      this.broadcastReload({ preserveHash: false });
     }
   }
 

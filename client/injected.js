@@ -15,6 +15,7 @@
   let ws = null;
   let reconnectTimer = null;
   let statePoller = null;
+  let sessionId = null;
   let lastReported = { slideId: null, hash: null, notes: null };
 
   function markPresenterPreview() {
@@ -147,6 +148,9 @@
     }
     lastReported = { slideId, hash, notes };
     const message = { type: "state", slideId, hash };
+    if (sessionId) {
+      message.sessionId = sessionId;
+    }
     if (notes !== undefined) {
       message.notes = notes;
     }
@@ -357,6 +361,21 @@
     }
   }
 
+  async function loadSessionId() {
+    try {
+      const response = await fetch("/_/api/config");
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      if (data && typeof data.sessionId === "string") {
+        sessionId = data.sessionId;
+      }
+    } catch (error) {
+      // ignore config fetch failures
+    }
+  }
+
   function startStatePolling() {
     if (statePoller) {
       return;
@@ -400,7 +419,11 @@
 
     ws = new WebSocket(getWebSocketUrl());
     ws.addEventListener("open", () => {
-      sendMessage({ type: "register", role: "display" });
+      const registerMessage = { type: "register", role: "display" };
+      if (sessionId) {
+        registerMessage.sessionId = sessionId;
+      }
+      sendMessage(registerMessage);
       reportState();
       startStatePolling();
     });
@@ -426,6 +449,8 @@
 
   document.addEventListener("keydown", handleKeydown);
 
-  connect();
-  createControlOverlay();
+  loadSessionId().finally(() => {
+    connect();
+    createControlOverlay();
+  });
 })();

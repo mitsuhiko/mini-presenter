@@ -79,6 +79,10 @@ let timerRunning = false;
 let timerStarted = false;
 let timerElapsed = 0;
 let lastTick = 0;
+let timerMode = "countup";
+let countdownDuration = 0;
+let countdownStartSlide = null;
+let sessionId = null;
 let lastSlideId = null;
 let lastKnownHash = "#";
 let previewHash = null;
@@ -149,6 +153,21 @@ function buildKeyboardMap(config) {
   return map;
 }
 
+function resolveCountdownDuration(timerConfig) {
+  if (!timerConfig || typeof timerConfig !== "object") {
+    return 0;
+  }
+  const minutes = Number(timerConfig.durationMinutes);
+  if (Number.isFinite(minutes) && minutes > 0) {
+    return minutes * 60 * 1000;
+  }
+  const seconds = Number(timerConfig.durationSeconds ?? timerConfig.duration);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return seconds * 1000;
+  }
+  return 0;
+}
+
 function applyConfig(config) {
   const title = typeof config?.title === "string" ? config.title : null;
   configTitle = title;
@@ -172,6 +191,18 @@ function applyConfig(config) {
   const previewConfig = config?.preview ?? config?.previews ?? {};
   relativeHashPreview = previewConfig?.relativeHash === true;
 
+  sessionId = typeof config?.sessionId === "string" ? config.sessionId : null;
+
+  const timerConfig = config?.timer ?? {};
+  timerMode = timerConfig?.mode === "countdown" ? "countdown" : "countup";
+  countdownDuration = resolveCountdownDuration(timerConfig);
+  countdownStartSlide = null;
+  timerElapsed = 0;
+  timerRunning = false;
+  timerStarted = false;
+  updateTimerDisplay();
+  updateTimerToggleLabel();
+
   if (lastSlideId || lastKnownHash !== "#") {
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
@@ -189,8 +220,48 @@ function formatDuration(ms) {
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
+function getTimerDisplayValue() {
+  if (timerMode === "countdown" && countdownDuration > 0) {
+    return Math.max(0, countdownDuration - timerElapsed);
+  }
+  return timerElapsed;
+}
+
+function updateTimerToggleLabel() {
+  if (!timerToggleButton) {
+    return;
+  }
+  if (!timerStarted && timerMode === "countdown") {
+    timerToggleButton.textContent = "Start";
+    return;
+  }
+  timerToggleButton.textContent = timerRunning ? "Pause" : "Resume";
+}
+
 function updateTimerDisplay() {
-  timerDisplay.textContent = formatDuration(timerElapsed);
+  timerDisplay.textContent = formatDuration(getTimerDisplayValue());
+}
+
+function formatSlideDisplay(slideId) {
+  const total = apiSlideOrder?.length;
+  const rawValue = slideId && slideId !== "—" ? slideId : "—";
+  const value = rawValue === "—" ? rawValue : rawValue.replace(/^#/, "");
+  if (value !== "—" && total) {
+    return `Slide ${value} of ${total}`;
+  }
+  return `Slide ${value}`;
+}
+
+function updateSlideIndicator(slideId) {
+  if (!currentSlideDisplay) {
+    return;
+  }
+  currentSlideDisplay.textContent = formatSlideDisplay(slideId);
+}
+
+function requestHardReload() {
+  sendMessage({ type: "reload" });
+  window.location.reload();
 }
 
 function startTimer() {
@@ -199,7 +270,7 @@ function startTimer() {
   }
   timerRunning = true;
   lastTick = Date.now();
-  timerToggleButton.textContent = "Pause";
+  updateTimerToggleLabel();
 }
 
 function pauseTimer() {
@@ -207,10 +278,20 @@ function pauseTimer() {
     return;
   }
   timerRunning = false;
-  timerToggleButton.textContent = "Resume";
+  updateTimerToggleLabel();
 }
 
 function toggleTimer() {
+  if (!timerStarted && timerMode === "countdown") {
+    timerStarted = true;
+    startTimer();
+    ensureTimerInterval();
+    return;
+  }
+  if (!timerStarted) {
+    timerStarted = true;
+    ensureTimerInterval();
+  }
   if (timerRunning) {
     pauseTimer();
   } else {
@@ -222,6 +303,7 @@ function resetTimer() {
   timerElapsed = 0;
   lastTick = Date.now();
   updateTimerDisplay();
+  updateTimerToggleLabel();
 }
 
 function tickTimer() {
@@ -231,6 +313,10 @@ function tickTimer() {
   const now = Date.now();
   timerElapsed += now - lastTick;
   lastTick = now;
+  if (timerMode === "countdown" && countdownDuration > 0 && timerElapsed >= countdownDuration) {
+    timerElapsed = countdownDuration;
+    pauseTimer();
+  }
   updateTimerDisplay();
 }
 
@@ -471,6 +557,7 @@ function getSlideOrderFromPreview() {
       if (Array.isArray(list)) {
         const filtered = list.filter((entry) => typeof entry === "string");
         apiSlideOrder = filtered.length > 0 ? filtered : null;
+        updateSlideIndicator(lastSlideId);
       }
     }
   } catch (error) {
@@ -676,9 +763,14 @@ function updateNotes({ slideId, hash, notes }) {
   fetchNotesForKey(notesKey);
 }
 
-function updateSlideState({ slideId, hash, displays, notes }) {
+function updateSlideState({ slideId, hash, displays, notes, sessionId: incomingSessionId }) {
+  if (sessionId && incomingSessionId && incomingSessionId !== sessionId) {
+    requestHardReload();
+    return;
+  }
+
   const stateKey = slideId || hash || "—";
-  currentSlideDisplay.textContent = stateKey;
+  updateSlideIndicator(stateKey);
 
   const nextHash = hash || slideId || "#";
   lastKnownHash = nextHash;
@@ -698,11 +790,25 @@ function updateSlideState({ slideId, hash, displays, notes }) {
   }
 
   if (stateKey !== lastSlideId) {
+    const previousSlideId = lastSlideId;
     lastSlideId = stateKey;
     if (!timerStarted) {
-      timerStarted = true;
-      startTimer();
-      ensureTimerInterval();
+      if (timerMode === "countdown") {
+        if (!countdownStartSlide) {
+          countdownStartSlide = stateKey;
+          updateTimerToggleLabel();
+          return;
+        }
+        if (previousSlideId === countdownStartSlide) {
+          timerStarted = true;
+          startTimer();
+          ensureTimerInterval();
+        }
+      } else {
+        timerStarted = true;
+        startTimer();
+        ensureTimerInterval();
+      }
     }
   }
 }
@@ -737,6 +843,11 @@ function handleMessage(event) {
     updatePreview(lastKnownHash);
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
+    return;
+  }
+
+  if (message.type === "reload") {
+    window.location.reload();
   }
 }
 
