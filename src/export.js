@@ -7,6 +7,7 @@ import { startServer } from "./server.js";
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const MAX_STALLED_ATTEMPTS = 3;
+const PRINT_DPI = 96;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -165,10 +166,107 @@ async function captureSlides({
   delay,
   format,
   outputPath,
+  viewport,
 }) {
   const slideList = await getSlideList(cdp, sessionId);
   const buffers = [];
+  const pdfBuffers = [];
   const getInfo = () => getSlideInfo(cdp, sessionId);
+  const paperWidth = viewport.width / PRINT_DPI;
+  const paperHeight = viewport.height / PRINT_DPI;
+  const captureScreenshot = async () => {
+    const { data } = await cdp.send(
+      "Page.captureScreenshot",
+      { format: "png", fromSurface: true },
+      sessionId,
+      10000
+    );
+    buffers.push(Buffer.from(data, "base64"));
+  };
+  const capturePdf = async () => {
+    const { data } = await cdp.send(
+      "Page.printToPDF",
+      {
+        printBackground: true,
+        preferCSSPageSize: true,
+        paperWidth,
+        paperHeight,
+        marginTop: 0,
+        marginBottom: 0,
+        marginLeft: 0,
+        marginRight: 0,
+        scale: 1,
+        displayHeaderFooter: false,
+      },
+      sessionId,
+      20000
+    );
+    pdfBuffers.push(Buffer.from(data, "base64"));
+  };
+  const capture = format === "pdf" ? capturePdf : captureScreenshot;
+
+  if (format === "pdf") {
+    const paperWidth = viewport.width / PRINT_DPI;
+    const paperHeight = viewport.height / PRINT_DPI;
+    const printStyle = `@page { size: ${paperWidth}in ${paperHeight}in; margin: 0; }
+@media print {
+  html, body {
+    width: ${viewport.width}px;
+    height: ${viewport.height}px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .deck {
+    width: ${viewport.width}px;
+    height: ${viewport.height}px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: none !important;
+  }
+}`;
+    await cdp.send(
+      "Runtime.evaluate",
+      {
+        expression: `(styleText => {
+          const id = "mini-presenter-print-style";
+          let style = document.getElementById(id);
+          if (!style) {
+            style = document.createElement("style");
+            style.id = id;
+            document.head.appendChild(style);
+          }
+          style.textContent = styleText;
+          document.documentElement.style.width = "${viewport.width}px";
+          document.documentElement.style.height = "${viewport.height}px";
+          document.documentElement.style.margin = "0";
+          if (document.body) {
+            document.body.style.width = "${viewport.width}px";
+            document.body.style.height = "${viewport.height}px";
+            document.body.style.margin = "0";
+            document.body.style.overflow = "hidden";
+          }
+          const deck = document.querySelector(".deck");
+          if (deck) {
+            deck.style.width = "${viewport.width}px";
+            deck.style.height = "${viewport.height}px";
+            deck.style.position = "absolute";
+            deck.style.top = "0";
+            deck.style.left = "0";
+            deck.style.transform = "none";
+          }
+        })(${JSON.stringify(printStyle)})`,
+        awaitPromise: true,
+      },
+      sessionId,
+      10000
+    );
+  }
 
   if (slideList && slideList.length > 0) {
     const hasStepEntries = slideList.some(
@@ -219,13 +317,7 @@ async function captureSlides({
       }
 
       await sleep(delay);
-      const { data } = await cdp.send(
-        "Page.captureScreenshot",
-        { format: "png", fromSurface: true },
-        sessionId,
-        10000
-      );
-      buffers.push(Buffer.from(data, "base64"));
+      await capture();
     }
   } else {
     const seen = new Set();
@@ -241,13 +333,7 @@ async function captureSlides({
       }
       seen.add(slideId);
       await sleep(delay);
-      const { data } = await cdp.send(
-        "Page.captureScreenshot",
-        { format: "png", fromSurface: true },
-        sessionId,
-        10000
-      );
-      buffers.push(Buffer.from(data, "base64"));
+      await capture();
       await navigateSlide(cdp, sessionId, "next");
       const changed = await waitForSlideChange(getInfo, slideId, 2000);
       if (!changed) {
@@ -271,15 +357,12 @@ async function captureSlides({
 
   await ensureDir(path.dirname(outputPath));
   const pdfDoc = await PDFDocument.create();
-  for (const buffer of buffers) {
-    const image = await pdfDoc.embedPng(buffer);
-    const page = pdfDoc.addPage([image.width, image.height]);
-    page.drawImage(image, {
-      x: 0,
-      y: 0,
-      width: image.width,
-      height: image.height,
-    });
+  for (const buffer of pdfBuffers) {
+    const source = await PDFDocument.load(buffer);
+    const pages = await pdfDoc.copyPages(source, source.getPageIndices());
+    for (const page of pages) {
+      pdfDoc.addPage(page);
+    }
   }
   const pdfBytes = await pdfDoc.save();
   await fs.writeFile(outputPath, pdfBytes);
@@ -343,7 +426,7 @@ export async function exportPresentation({
     await cdp.waitForEvent("Page.loadEventFired", sessionId, 15000);
     await ensurePresentationReady(cdp, sessionId);
 
-    await captureSlides({ cdp, sessionId, delay, format, outputPath });
+    await captureSlides({ cdp, sessionId, delay, format, outputPath, viewport });
   } finally {
     if (cdp && targetId) {
       try {
