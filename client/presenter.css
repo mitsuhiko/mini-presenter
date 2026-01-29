@@ -15,6 +15,10 @@
   --presenter-button-bg: #c08a57;
   --presenter-button-hover: #b17845;
   --presenter-button-text: #fdf6ee;
+  --presenter-button-border: #8f653c;
+  --presenter-button-shadow: #704f2d;
+  --presenter-button-highlight: #e5b37d;
+  --presenter-radius: 6px;
   --presenter-connection-warn: #d1a35a;
   --presenter-connection-ok: #84c39c;
 }
@@ -37,6 +41,10 @@
     --presenter-button-bg: #c89a6a;
     --presenter-button-hover: #b48353;
     --presenter-button-text: #1f120a;
+    --presenter-button-border: #8a643e;
+    --presenter-button-shadow: #5f3f21;
+    --presenter-button-highlight: #f0c290;
+    --presenter-radius: 6px;
     --presenter-connection-warn: #e3b66a;
     --presenter-connection-ok: #8fd0a4;
   }
@@ -58,13 +66,13 @@ body {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   min-height: 100vh;
-  padding: 2rem;
-  gap: 1.5rem;
+  padding: 0.5rem;
+  gap: 0.5rem;
 }
 
 .presenter__main {
   display: grid;
-  gap: 1.5rem;
+  gap: 0.5rem;
   grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr);
   align-items: stretch;
 }
@@ -72,7 +80,7 @@ body {
 .presenter__side {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.5rem;
 }
 
 .presenter__header {
@@ -99,21 +107,23 @@ body {
 
 .presenter__timer {
   font-variant-numeric: tabular-nums;
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.4rem;
+  font-weight: 700;
 }
 
 .presenter__slide {
   color: var(--presenter-text-muted);
+  font-size: 1.05rem;
+  font-weight: 600;
 }
 
 .presenter__preview {
-  border-radius: 1rem;
+  border-radius: var(--presenter-radius);
   background: var(--presenter-preview-bg);
-  border: 1px solid var(--presenter-preview-border);
+  border: 2px solid var(--presenter-preview-border);
   display: flex;
   flex-direction: column;
-  padding: 1.5rem;
+  padding: 1.1rem;
   text-align: center;
   font-size: 1.05rem;
   color: var(--presenter-text-subtle);
@@ -162,8 +172,8 @@ body {
   max-width: 100%;
   max-height: 100%;
   aspect-ratio: 16 / 9;
-  border: none;
-  border-radius: 0.75rem;
+  border: 2px solid var(--presenter-preview-border);
+  border-radius: calc(var(--presenter-radius) - 2px);
   background: var(--presenter-preview-frame-bg);
   pointer-events: none;
 }
@@ -198,13 +208,13 @@ body {
   opacity: 1;
   background: var(--presenter-placeholder-bg);
   color: var(--presenter-title);
-  border-radius: 0.75rem;
+  border-radius: calc(var(--presenter-radius) - 1px);
 }
 
 .presenter__notes {
-  border-radius: 1rem;
+  border-radius: var(--presenter-radius);
   background: var(--presenter-notes-bg);
-  border: 1px solid var(--presenter-panel-border);
+  border: 2px solid var(--presenter-panel-border);
   padding: 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
@@ -255,23 +265,39 @@ body {
 }
 
 .presenter__button {
-  border: none;
-  border-radius: 999px;
-  padding: 0.85rem 1.75rem;
+  border: 2px solid var(--presenter-button-border);
+  border-radius: 10px;
+  padding: 0.8rem 1.6rem;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   background: var(--presenter-button-bg);
   color: var(--presenter-button-text);
-  transition: background 0.2s ease;
+  box-shadow: 0 6px 0 var(--presenter-button-shadow), 0 10px 16px rgba(0, 0, 0, 0.18);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  letter-spacing: 0.01em;
 }
 
 .presenter__button:hover {
   background: var(--presenter-button-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 7px 0 var(--presenter-button-shadow), 0 12px 18px rgba(0, 0, 0, 0.2);
 }
 
 .presenter__button:active {
-  transform: translateY(1px);
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 var(--presenter-button-shadow), 0 6px 12px rgba(0, 0, 0, 0.18);
+}
+
+.presenter__button:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presenter__button {
+    transition: none;
+  }
 }
 
 .presenter__footer {
@@ -279,7 +305,7 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   color: var(--presenter-text-muted);
 }
 
@@ -297,8 +323,8 @@ body {
 
 @media (max-width: 720px) {
   .presenter {
-    padding: 1rem;
-    gap: 1rem;
+    padding: 0.5rem;
+    gap: 0.5rem;
   }
 
   .presenter__header {
@@ -317,7 +343,7 @@ body {
   }
 
   .presenter__side {
-    gap: 1rem;
+    gap: 0.5rem;
   }
 
   .presenter__preview {
