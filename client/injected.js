@@ -11,12 +11,18 @@
 
   const RECONNECT_DELAY_MS = 1000;
   const STATE_POLL_INTERVAL_MS = 250;
+  const DRAW_COLOR = "#ff4d4d";
+  const DRAW_LINE_WIDTH_RATIO = 0.004;
+  const LASER_COLOR = "#ffdd4d";
+  const LASER_RADIUS_RATIO = 0.012;
+  const LASER_FADE_MS = 180;
 
   let ws = null;
   let reconnectTimer = null;
   let statePoller = null;
   let sessionId = null;
-  let lastReported = { slideId: null, hash: null, notes: null };
+  let lastReported = { slideId: null, hash: null, notes: null, viewport: null };
+  let drawingOverlay = null;
 
   function markPresenterPreview() {
     if (!window.miniPresenter ||
@@ -135,19 +141,29 @@
     return undefined;
   }
 
+  function getViewportMetrics() {
+    return {
+      width: Math.round(window.innerWidth || 0),
+      height: Math.round(window.innerHeight || 0),
+    };
+  }
+
   function reportState() {
     const slideId = getSlideId();
     const hash = location.hash || "#";
     const notes = getNotes(slideId);
+    const viewport = getViewportMetrics();
     if (
       slideId === lastReported.slideId &&
       hash === lastReported.hash &&
-      notes === lastReported.notes
+      notes === lastReported.notes &&
+      viewport.width === lastReported.viewport?.width &&
+      viewport.height === lastReported.viewport?.height
     ) {
       return;
     }
-    lastReported = { slideId, hash, notes };
-    const message = { type: "state", slideId, hash };
+    lastReported = { slideId, hash, notes, viewport };
+    const message = { type: "state", slideId, hash, viewport };
     if (sessionId) {
       message.sessionId = sessionId;
     }
@@ -372,6 +388,140 @@
     }
   }
 
+  function createDrawingOverlay() {
+    const drawCanvas = document.createElement("canvas");
+    const laserCanvas = document.createElement("canvas");
+    const drawContext = drawCanvas.getContext("2d");
+    const laserContext = laserCanvas.getContext("2d");
+    let currentStroke = null;
+    let laserTimer = null;
+    let viewportWidth = window.innerWidth || 0;
+    let viewportHeight = window.innerHeight || 0;
+
+    if (!drawContext || !laserContext) {
+      return {
+        renderDrawMessage: () => {},
+      };
+    }
+
+    drawCanvas.id = "mini-presenter-draw-canvas";
+    laserCanvas.id = "mini-presenter-laser-canvas";
+
+    const baseStyle = `
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2147483645;
+    `;
+
+    drawCanvas.style.cssText = baseStyle;
+    laserCanvas.style.cssText = `${baseStyle} z-index: 2147483646;`;
+
+    const resize = () => {
+      viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+      viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+      const pixelRatio = window.devicePixelRatio || 1;
+      drawCanvas.width = Math.round(viewportWidth * pixelRatio);
+      drawCanvas.height = Math.round(viewportHeight * pixelRatio);
+      laserCanvas.width = Math.round(viewportWidth * pixelRatio);
+      laserCanvas.height = Math.round(viewportHeight * pixelRatio);
+      drawContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      laserContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      drawContext.lineCap = "round";
+      drawContext.lineJoin = "round";
+    };
+
+    const clearLaser = () => {
+      laserContext.clearRect(0, 0, viewportWidth, viewportHeight);
+    };
+
+    const clearAll = () => {
+      drawContext.clearRect(0, 0, viewportWidth, viewportHeight);
+      clearLaser();
+      currentStroke = null;
+    };
+
+    const renderLaserPoint = ({ x, y, radius, color }) => {
+      const cx = x * viewportWidth;
+      const cy = y * viewportHeight;
+      const size = (radius ?? LASER_RADIUS_RATIO) * viewportWidth;
+      clearLaser();
+      laserContext.save();
+      laserContext.fillStyle = color ?? LASER_COLOR;
+      laserContext.shadowColor = color ?? LASER_COLOR;
+      laserContext.shadowBlur = size * 1.1;
+      laserContext.beginPath();
+      laserContext.arc(cx, cy, size, 0, Math.PI * 2);
+      laserContext.fill();
+      laserContext.restore();
+      if (laserTimer) {
+        clearTimeout(laserTimer);
+      }
+      laserTimer = setTimeout(() => {
+        laserTimer = null;
+        clearLaser();
+      }, LASER_FADE_MS);
+    };
+
+    const renderDrawMessage = (message) => {
+      if (message.action === "clear") {
+        clearAll();
+        return;
+      }
+      if (message.action === "laser") {
+        renderLaserPoint(message);
+        return;
+      }
+      const x = message.x * viewportWidth;
+      const y = message.y * viewportHeight;
+      const size = (message.size ?? DRAW_LINE_WIDTH_RATIO) * viewportWidth;
+      const color = message.color ?? DRAW_COLOR;
+
+      if (message.action === "start") {
+        drawContext.fillStyle = color;
+        drawContext.beginPath();
+        drawContext.arc(x, y, size / 2, 0, Math.PI * 2);
+        drawContext.fill();
+        currentStroke = { x, y, size, color };
+        return;
+      }
+
+      if (!currentStroke) {
+        return;
+      }
+
+      drawContext.strokeStyle = currentStroke.color;
+      drawContext.lineWidth = currentStroke.size;
+      drawContext.beginPath();
+      drawContext.moveTo(currentStroke.x, currentStroke.y);
+      drawContext.lineTo(x, y);
+      drawContext.stroke();
+      currentStroke = { x, y, size: currentStroke.size, color: currentStroke.color };
+
+      if (message.action === "end") {
+        currentStroke = null;
+      }
+    };
+
+    const appendCanvases = () => {
+      document.body.appendChild(drawCanvas);
+      document.body.appendChild(laserCanvas);
+    };
+
+    if (document.body) {
+      appendCanvases();
+    } else {
+      document.addEventListener("DOMContentLoaded", appendCanvases, { once: true });
+    }
+
+    resize();
+    window.addEventListener("resize", resize);
+
+    return { renderDrawMessage };
+  }
+
   function handleMessage(event) {
     let message;
     try {
@@ -384,6 +534,8 @@
       handleNavigate(message.action);
     } else if (message.type === "goto") {
       handleGoto(message.hash);
+    } else if (message.type === "draw") {
+      drawingOverlay?.renderDrawMessage(message);
     } else if (message.type === "reload") {
       if (message.preserveHash) {
         location.reload();
@@ -478,10 +630,12 @@
 
   window.addEventListener("hashchange", reportState);
   window.addEventListener("popstate", reportState);
+  window.addEventListener("resize", reportState);
 
   document.addEventListener("keydown", handleKeydown);
 
   loadSessionId().finally(() => {
+    drawingOverlay = createDrawingOverlay();
     connect();
     createControlOverlay();
   });

@@ -13,13 +13,25 @@
           <div class="presenter__preview-title">Current slide</div>
           <div class="presenter__preview-body">
             <div class="presenter__preview-frame">
-              <iframe
-                id="preview-frame"
-                title="Current slide preview"
-                loading="lazy"
-                referrerpolicy="no-referrer"
-                tabindex="-1"
-              ></iframe>
+              <div class="presenter__preview-stage">
+                <iframe
+                  id="preview-frame"
+                  title="Current slide preview"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                  tabindex="-1"
+                ></iframe>
+                <canvas
+                  id="preview-draw-canvas"
+                  class="presenter__preview-canvas"
+                  aria-hidden="true"
+                ></canvas>
+                <canvas
+                  id="preview-laser-canvas"
+                  class="presenter__preview-canvas presenter__preview-canvas--laser"
+                  aria-hidden="true"
+                ></canvas>
+              </div>
             </div>
             <div class="presenter__placeholder" id="preview-placeholder">
               Waiting for display connection…
@@ -32,13 +44,15 @@
             <div class="presenter__preview-title">Next slide</div>
             <div class="presenter__preview-body">
               <div class="presenter__preview-frame">
-                <iframe
-                  id="next-preview-frame"
-                  title="Next slide preview"
-                  loading="lazy"
-                  referrerpolicy="no-referrer"
-                  tabindex="-1"
-                ></iframe>
+                <div class="presenter__preview-stage">
+                  <iframe
+                    id="next-preview-frame"
+                    title="Next slide preview"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                    tabindex="-1"
+                  ></iframe>
+                </div>
               </div>
               <div class="presenter__placeholder" id="next-preview-placeholder">
                 Next slide preview unavailable.
@@ -54,6 +68,20 @@
             <div class="presenter__timer-controls">
               <button class="presenter__button" id="timer-toggle">Pause</button>
               <button class="presenter__button" id="timer-reset">⟲ Reset</button>
+            </div>
+            <div class="presenter__tools">
+              <button class="presenter__button presenter__tool" data-tool="draw">✎ Draw</button>
+              <button class="presenter__button presenter__tool" data-tool="laser">● Laser</button>
+              <button class="presenter__button presenter__tool" data-tool="clear">Clear</button>
+              <div class="presenter__colors" role="group" aria-label="Drawing colors">
+                <button class="presenter__color" data-color="#ff4d4d" style="--color: #ff4d4d;" aria-label="Red"></button>
+                <button class="presenter__color" data-color="#ff8a00" style="--color: #ff8a00;" aria-label="Orange"></button>
+                <button class="presenter__color" data-color="#35c276" style="--color: #35c276;" aria-label="Green"></button>
+                <button class="presenter__color" data-color="#4d7cff" style="--color: #4d7cff;" aria-label="Blue"></button>
+                <label class="presenter__color presenter__color--picker" aria-label="Custom color">
+                  <input type="color" id="draw-color-picker" value="#ff4d4d" />
+                </label>
+              </div>
             </div>
           </section>
 

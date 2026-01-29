@@ -5,12 +5,18 @@ const connectionStatus = document.querySelector("#connection-status");
 const previewPlaceholder = document.querySelector("#preview-placeholder");
 const previewSection = document.querySelector(".presenter__preview--current");
 const previewFrame = document.querySelector("#preview-frame");
+const previewStage = previewSection?.querySelector(".presenter__preview-stage");
+const drawCanvas = document.querySelector("#preview-draw-canvas");
+const laserCanvas = document.querySelector("#preview-laser-canvas");
 const nextPreviewPlaceholder = document.querySelector("#next-preview-placeholder");
 const nextPreviewSection = document.querySelector(".presenter__preview--next");
 const nextPreviewFrame = document.querySelector("#next-preview-frame");
 const timerToggleButton = document.querySelector("#timer-toggle");
 const timerResetButton = document.querySelector("#timer-reset");
 const actionButtons = document.querySelectorAll("[data-action]");
+const toolButtons = document.querySelectorAll("[data-tool]");
+const colorButtons = document.querySelectorAll(".presenter__color[data-color]");
+const colorPickerInput = document.querySelector("#draw-color-picker");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
@@ -24,6 +30,14 @@ const NOTES_DISABLED_TEXT = "Speaker notes disabled.";
 const NEXT_PREVIEW_WAITING_TEXT = "Waiting for display connection…";
 const NEXT_PREVIEW_UNAVAILABLE_TEXT = "Next slide preview unavailable.";
 const NEXT_PREVIEW_LAST_TEXT = "End of deck.";
+
+const DRAW_COLOR = "#ff4d4d";
+const DRAW_LINE_WIDTH_RATIO = 0.004;
+const LASER_COLOR = "#ffdd4d";
+const LASER_RADIUS_RATIO = 0.012;
+const LASER_FADE_MS = 180;
+const LASER_SEND_THROTTLE_MS = 25;
+const DRAW_SEND_THROTTLE_MS = 16;
 
 const presenterKey = getPresenterKey();
 
@@ -102,6 +116,20 @@ let pendingNextPreviewHash = null;
 let relativeNextPreviewTimer = null;
 let relativeNextPreviewAttempts = 0;
 let relativeNextPreviewEndHash = null;
+let previewAspectRatio = null;
+let activeTool = "none";
+let activeDrawColor = DRAW_COLOR;
+let drawingActive = false;
+let laserActive = false;
+let drawContext = null;
+let laserContext = null;
+let currentStroke = null;
+let drawHistory = [];
+let activeHistoryStroke = null;
+let lastLaserSent = 0;
+let lastDrawSent = 0;
+let laserFadeTimer = null;
+let previewResizeObserver = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -652,6 +680,436 @@ function updateNextPreview({ slideId, hash }) {
   updateNextPreviewFrame(nextHash);
 }
 
+function updatePreviewAspectRatio(viewport) {
+  const width = Number(viewport?.width);
+  const height = Number(viewport?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return;
+  }
+  const ratio = width / height;
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return;
+  }
+  if (previewAspectRatio && Math.abs(ratio - previewAspectRatio) < 0.002) {
+    return;
+  }
+  previewAspectRatio = ratio;
+  document.documentElement.style.setProperty("--presenter-preview-aspect", ratio.toFixed(5));
+  resizePreviewCanvases();
+}
+
+function resizeCanvas(canvas, context, { preserve = false } = {}) {
+  if (!canvas || !context) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  const pixelRatio = window.devicePixelRatio || 1;
+  const width = Math.round(rect.width * pixelRatio);
+  const height = Math.round(rect.height * pixelRatio);
+  const needsResize = canvas.width !== width || canvas.height !== height;
+  let snapshot = null;
+  if (preserve && needsResize && canvas.width && canvas.height) {
+    snapshot = document.createElement("canvas");
+    snapshot.width = rect.width;
+    snapshot.height = rect.height;
+    const snapshotContext = snapshot.getContext("2d");
+    if (snapshotContext) {
+      snapshotContext.drawImage(
+        canvas,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+        0,
+        0,
+        rect.width,
+        rect.height
+      );
+    }
+  }
+  if (needsResize) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  if (snapshot) {
+    context.save();
+    context.drawImage(snapshot, 0, 0, rect.width, rect.height);
+    context.restore();
+  }
+}
+
+function resizePreviewCanvases() {
+  if (!drawCanvas || !laserCanvas) {
+    return;
+  }
+  if (!drawContext) {
+    drawContext = drawCanvas.getContext("2d");
+  }
+  if (!laserContext) {
+    laserContext = laserCanvas.getContext("2d");
+  }
+  if (!drawContext || !laserContext) {
+    return;
+  }
+  resizeCanvas(drawCanvas, drawContext);
+  resizeCanvas(laserCanvas, laserContext);
+  redrawDrawHistory();
+}
+
+function clearLaserCanvas() {
+  if (!laserContext || !laserCanvas) {
+    return;
+  }
+  const rect = laserCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  laserContext.clearRect(0, 0, rect.width, rect.height);
+}
+
+function clearDrawings({ send = false } = {}) {
+  if (drawContext && drawCanvas) {
+    const rect = drawCanvas.getBoundingClientRect();
+    if (rect.width && rect.height) {
+      drawContext.clearRect(0, 0, rect.width, rect.height);
+    }
+  }
+  clearLaserCanvas();
+  currentStroke = null;
+  activeHistoryStroke = null;
+  drawHistory = [];
+  drawingActive = false;
+  laserActive = false;
+  if (send) {
+    sendMessage({ type: "draw", action: "clear" });
+  }
+}
+
+function getCanvasPoint(event) {
+  if (!drawCanvas) {
+    return null;
+  }
+  const rect = drawCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return null;
+  }
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  return {
+    x,
+    y,
+    normalizedX: x / rect.width,
+    normalizedY: y / rect.height,
+  };
+}
+
+function renderLaserPoint({ x, y, radius, color }) {
+  if (!laserContext || !laserCanvas) {
+    return;
+  }
+  const rect = laserCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  const cx = x * rect.width;
+  const cy = y * rect.height;
+  const size = (radius ?? LASER_RADIUS_RATIO) * rect.width;
+  laserContext.clearRect(0, 0, rect.width, rect.height);
+  laserContext.save();
+  laserContext.fillStyle = color ?? LASER_COLOR;
+  laserContext.shadowColor = color ?? LASER_COLOR;
+  laserContext.shadowBlur = size * 1.1;
+  laserContext.beginPath();
+  laserContext.arc(cx, cy, size, 0, Math.PI * 2);
+  laserContext.fill();
+  laserContext.restore();
+  if (laserFadeTimer) {
+    clearTimeout(laserFadeTimer);
+  }
+  laserFadeTimer = setTimeout(() => {
+    laserFadeTimer = null;
+    clearLaserCanvas();
+  }, LASER_FADE_MS);
+}
+
+function recordDrawHistory(message) {
+  if (message.action === "clear") {
+    drawHistory = [];
+    activeHistoryStroke = null;
+    return;
+  }
+  if (message.action === "laser") {
+    return;
+  }
+  const point = { x: message.x, y: message.y };
+  if (message.action === "start") {
+    const stroke = {
+      color: message.color ?? DRAW_COLOR,
+      size: message.size ?? DRAW_LINE_WIDTH_RATIO,
+      points: [point],
+    };
+    drawHistory.push(stroke);
+    activeHistoryStroke = stroke;
+    return;
+  }
+  if (!activeHistoryStroke) {
+    return;
+  }
+  activeHistoryStroke.points.push(point);
+  if (message.action === "end") {
+    activeHistoryStroke = null;
+  }
+}
+
+function redrawDrawHistory() {
+  if (!drawContext || !drawCanvas) {
+    return;
+  }
+  const rect = drawCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  drawContext.clearRect(0, 0, rect.width, rect.height);
+  for (const stroke of drawHistory) {
+    if (!stroke.points.length) {
+      continue;
+    }
+    const size = stroke.size * rect.width;
+    const color = stroke.color;
+    const [first, ...rest] = stroke.points;
+    const startX = first.x * rect.width;
+    const startY = first.y * rect.height;
+    drawContext.fillStyle = color;
+    drawContext.beginPath();
+    drawContext.arc(startX, startY, size / 2, 0, Math.PI * 2);
+    drawContext.fill();
+    if (!rest.length) {
+      continue;
+    }
+    drawContext.strokeStyle = color;
+    drawContext.lineWidth = size;
+    drawContext.beginPath();
+    drawContext.moveTo(startX, startY);
+    for (const point of rest) {
+      drawContext.lineTo(point.x * rect.width, point.y * rect.height);
+    }
+    drawContext.stroke();
+  }
+}
+
+function renderDrawMessage(message) {
+  if (!drawContext || !drawCanvas) {
+    return;
+  }
+  if (message.action === "laser") {
+    renderLaserPoint(message);
+    return;
+  }
+  recordDrawHistory(message);
+  if (message.action === "clear") {
+    clearDrawings({ send: false });
+    return;
+  }
+  const rect = drawCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  const x = message.x * rect.width;
+  const y = message.y * rect.height;
+  const size = (message.size ?? DRAW_LINE_WIDTH_RATIO) * rect.width;
+  const color = message.color ?? DRAW_COLOR;
+
+  if (message.action === "start") {
+    drawContext.fillStyle = color;
+    drawContext.beginPath();
+    drawContext.arc(x, y, size / 2, 0, Math.PI * 2);
+    drawContext.fill();
+    currentStroke = { x, y, size, color };
+    return;
+  }
+
+  if (!currentStroke) {
+    return;
+  }
+
+  drawContext.strokeStyle = currentStroke.color;
+  drawContext.lineWidth = currentStroke.size;
+  drawContext.beginPath();
+  drawContext.moveTo(currentStroke.x, currentStroke.y);
+  drawContext.lineTo(x, y);
+  drawContext.stroke();
+  currentStroke = { x, y, size: currentStroke.size, color: currentStroke.color };
+
+  if (message.action === "end") {
+    currentStroke = null;
+  }
+}
+
+function setDrawColor(color, { fromPicker = false } = {}) {
+  if (!color || typeof color !== "string") {
+    return;
+  }
+  activeDrawColor = color;
+  if (colorPickerInput && colorPickerInput.value !== color) {
+    colorPickerInput.value = color;
+  }
+  colorButtons.forEach((button) => {
+    const isActive = button.dataset.color === color && !fromPicker;
+    button.classList.toggle("presenter__color--active", isActive);
+  });
+  if (fromPicker) {
+    colorButtons.forEach((button) => {
+      button.classList.remove("presenter__color--active");
+    });
+  }
+}
+
+function setActiveTool(tool) {
+  if (tool === "clear") {
+    clearDrawings({ send: true });
+    return;
+  }
+  activeTool = activeTool === tool ? "none" : tool;
+  if (previewSection) {
+    previewSection.classList.toggle("presenter__preview--drawing", activeTool !== "none");
+  }
+  toolButtons.forEach((button) => {
+    const isActive = button.dataset.tool === activeTool;
+    button.classList.toggle("presenter__button--active", isActive);
+  });
+  if (activeTool === "none") {
+    drawingActive = false;
+    laserActive = false;
+  }
+}
+
+function sendDrawMessage(payload) {
+  sendMessage({ type: "draw", ...payload });
+}
+
+function handleDrawPointerDown(event) {
+  if (activeTool === "draw") {
+    if (event.button !== 0) {
+      return;
+    }
+    const point = getCanvasPoint(event);
+    if (!point) {
+      return;
+    }
+    drawingActive = true;
+    drawCanvas?.setPointerCapture(event.pointerId);
+    const message = {
+      action: "start",
+      x: point.normalizedX,
+      y: point.normalizedY,
+      color: activeDrawColor,
+      size: DRAW_LINE_WIDTH_RATIO,
+    };
+    renderDrawMessage(message);
+    sendDrawMessage(message);
+    return;
+  }
+
+  if (activeTool === "laser") {
+    laserActive = true;
+    drawCanvas?.setPointerCapture(event.pointerId);
+    handleLaserMove(event, true);
+  }
+}
+
+function handleLaserMove(event, forceSend = false) {
+  const point = getCanvasPoint(event);
+  if (!point) {
+    return;
+  }
+  const now = performance.now();
+  if (!forceSend && now - lastLaserSent < LASER_SEND_THROTTLE_MS) {
+    return;
+  }
+  lastLaserSent = now;
+  const message = {
+    action: "laser",
+    x: point.normalizedX,
+    y: point.normalizedY,
+    color: LASER_COLOR,
+    radius: LASER_RADIUS_RATIO,
+  };
+  renderLaserPoint(message);
+  sendDrawMessage(message);
+}
+
+function handleDrawPointerMove(event) {
+  if (activeTool === "draw" && drawingActive) {
+    const point = getCanvasPoint(event);
+    if (!point) {
+      return;
+    }
+    const now = performance.now();
+    if (now - lastDrawSent < DRAW_SEND_THROTTLE_MS) {
+      return;
+    }
+    lastDrawSent = now;
+    const message = { action: "move", x: point.normalizedX, y: point.normalizedY };
+    renderDrawMessage(message);
+    sendDrawMessage(message);
+    return;
+  }
+
+  if (activeTool === "laser" && laserActive) {
+    handleLaserMove(event);
+  }
+}
+
+function handleDrawPointerUp(event) {
+  if (activeTool === "draw" && drawingActive) {
+    const point = getCanvasPoint(event);
+    drawingActive = false;
+    drawCanvas?.releasePointerCapture(event.pointerId);
+    if (!point) {
+      currentStroke = null;
+      return;
+    }
+    const message = { action: "end", x: point.normalizedX, y: point.normalizedY };
+    renderDrawMessage(message);
+    sendDrawMessage(message);
+    return;
+  }
+
+  if (activeTool === "laser" && laserActive) {
+    laserActive = false;
+    drawCanvas?.releasePointerCapture(event.pointerId);
+  }
+}
+
+function attachDrawingHandlers() {
+  if (!drawCanvas || !previewStage) {
+    return;
+  }
+  resizePreviewCanvases();
+  if (previewResizeObserver) {
+    previewResizeObserver.disconnect();
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    previewResizeObserver = new ResizeObserver(() => {
+      resizePreviewCanvases();
+    });
+    previewResizeObserver.observe(previewStage);
+  } else {
+    window.addEventListener("resize", resizePreviewCanvases);
+  }
+  drawCanvas.addEventListener("pointerdown", handleDrawPointerDown);
+  drawCanvas.addEventListener("pointermove", handleDrawPointerMove);
+  drawCanvas.addEventListener("pointerup", handleDrawPointerUp);
+  drawCanvas.addEventListener("pointercancel", handleDrawPointerUp);
+  drawCanvas.addEventListener("pointerleave", handleDrawPointerUp);
+}
+
 function setNotesDisplay(content, status) {
   if (notesContent) {
     notesContent.textContent = content;
@@ -763,11 +1221,20 @@ function updateNotes({ slideId, hash, notes }) {
   fetchNotesForKey(notesKey);
 }
 
-function updateSlideState({ slideId, hash, displays, notes, sessionId: incomingSessionId }) {
+function updateSlideState({
+  slideId,
+  hash,
+  displays,
+  notes,
+  viewport,
+  sessionId: incomingSessionId,
+}) {
   if (sessionId && incomingSessionId && incomingSessionId !== sessionId) {
     requestHardReload();
     return;
   }
+
+  updatePreviewAspectRatio(viewport);
 
   const stateKey = slideId || hash || "—";
   updateSlideIndicator(stateKey);
@@ -792,6 +1259,7 @@ function updateSlideState({ slideId, hash, displays, notes, sessionId: incomingS
   if (stateKey !== lastSlideId) {
     const previousSlideId = lastSlideId;
     lastSlideId = stateKey;
+    clearDrawings({ send: true });
     if (!timerStarted) {
       if (timerMode === "countdown") {
         if (!countdownStartSlide) {
@@ -944,6 +1412,36 @@ actionButtons.forEach((button) => {
   });
 });
 
+toolButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const tool = button.dataset.tool;
+    if (tool) {
+      setActiveTool(tool);
+    }
+  });
+});
+
+colorButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const color = button.dataset.color;
+    if (color) {
+      setDrawColor(color);
+      if (activeTool === "none") {
+        setActiveTool("draw");
+      }
+    }
+  });
+});
+
+if (colorPickerInput) {
+  colorPickerInput.addEventListener("input", () => {
+    setDrawColor(colorPickerInput.value, { fromPicker: true });
+    if (activeTool === "none") {
+      setActiveTool("draw");
+    }
+  });
+}
+
 window.addEventListener("message", (event) => {
   const payload = event.data;
   if (!payload || payload.type !== "miniPresenterPreviewReady") {
@@ -988,6 +1486,9 @@ setPreviewActive(nextPreviewSection, false);
 updatePreview(lastKnownHash);
 setNotesDisplay("Waiting for slide updates…", "Idle");
 setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
+attachDrawingHandlers();
+setDrawColor(DRAW_COLOR);
+setActiveTool("none");
 connect();
 
 window.addEventListener("beforeunload", () => {

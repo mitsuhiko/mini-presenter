@@ -169,14 +169,47 @@ body {
   transition: opacity 0.2s ease;
 }
 
-.presenter__preview-frame iframe {
+.presenter__preview-stage {
+  position: relative;
   width: 100%;
   max-width: 100%;
   max-height: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--presenter-preview-aspect, 16 / 9);
   border: 2px solid var(--presenter-preview-border);
   border-radius: calc(var(--presenter-radius) - 2px);
   background: var(--presenter-preview-frame-bg);
+  overflow: hidden;
+}
+
+.presenter__preview-stage iframe,
+.presenter__preview-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.presenter__preview-stage iframe {
+  pointer-events: none;
+}
+
+.presenter__preview-canvas {
+  pointer-events: none;
+  z-index: 1;
+  touch-action: none;
+}
+
+.presenter__preview-canvas--laser {
+  z-index: 2;
+}
+
+.presenter__preview--drawing .presenter__preview-canvas {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.presenter__preview--drawing .presenter__preview-canvas--laser {
   pointer-events: none;
 }
 
@@ -259,8 +292,52 @@ body {
   gap: 0.5rem;
 }
 
+.presenter__colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.presenter__color {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  border: 2px solid var(--presenter-button-border);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--presenter-button-shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.presenter__color[data-color] {
+  background: var(--color);
+}
+
+.presenter__color--active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 var(--presenter-button-shadow);
+}
+
+.presenter__color--picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.presenter__color--picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .presenter__nav,
-.presenter__timer-controls {
+.presenter__timer-controls,
+.presenter__tools {
   display: contents;
 }
 
@@ -291,6 +368,12 @@ body {
 .presenter__button:active {
   transform: translateY(4px);
   box-shadow: 0 2px 0 var(--presenter-button-shadow), 0 6px 12px rgba(0, 0, 0, 0.18);
+}
+
+.presenter__button--active {
+  background: var(--presenter-button-hover);
+  transform: translateY(3px);
+  box-shadow: 0 3px 0 var(--presenter-button-shadow), 0 7px 12px rgba(0, 0, 0, 0.18);
 }
 
 .presenter__button:focus-visible {
@@ -380,12 +463,21 @@ body {
     bottom: 0;
     background: var(--presenter-bg);
     padding: 0.5rem 0 calc(0.75rem + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    align-items: center;
   }
 
   .presenter__controls .presenter__button {
-    flex: 1 1 10rem;
-    font-size: 1.15rem;
-    padding: 1.05rem 1.25rem;
+    flex: none;
+    width: 100%;
+    font-size: 1.05rem;
+    padding: 0.95rem 1.1rem;
+  }
+
+  .presenter__colors {
+    grid-column: 1 / -1;
+    justify-content: center;
   }
 
   .presenter__footer {

@@ -53,6 +53,11 @@ class Hub {
       return;
     }
 
+    if (message.type === "draw" && ws.role === "presenter") {
+      this.broadcast(this.displays, message);
+      return;
+    }
+
     if (message.type === "reload" && ws.role === "presenter") {
       this.broadcastReload({ preserveHash: false });
     }
