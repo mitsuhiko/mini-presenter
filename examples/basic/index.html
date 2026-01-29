@@ -13,14 +13,25 @@
 
       body {
         margin: 0;
+        overflow: hidden;
+      }
+
+      .deck {
+        width: 1920px;
+        height: 1080px;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform-origin: center center;
+        background: #0f172a;
       }
 
       .slide {
         display: none;
         box-sizing: border-box;
-        height: 100vh;
-        width: 100vw;
-        padding: 6vh 8vw;
+        height: 1080px;
+        width: 1920px;
+        padding: 96px 140px;
         align-content: center;
       }
 
@@ -75,7 +86,8 @@
     </style>
   </head>
   <body>
-    <section class="slide" data-slide="1">
+    <div class="deck">
+      <section class="slide" data-slide="1">
       <div>
         <span class="tag">mini-presenter</span>
         <h1>Welcome</h1>
@@ -141,15 +153,30 @@
       <footer>#6</footer>
     </section>
 
-    <section class="slide" data-slide="7">
-      <div>
-        <h2>Thanks!</h2>
-        <p>Demo complete. Try navigating again.</p>
-      </div>
-      <footer>#7</footer>
-    </section>
+      <section class="slide" data-slide="7">
+        <div>
+          <h2>Thanks!</h2>
+          <p>Demo complete. Try navigating again.</p>
+        </div>
+        <footer>#7</footer>
+      </section>
+    </div>
 
     <script>
+      const deck = document.querySelector(".deck");
+      const DECK_WIDTH = 1920;
+      const DECK_HEIGHT = 1080;
+
+      function scaleDeck() {
+        const scaleX = window.innerWidth / DECK_WIDTH;
+        const scaleY = window.innerHeight / DECK_HEIGHT;
+        const scale = Math.min(scaleX, scaleY);
+        deck.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      }
+
+      window.addEventListener("resize", scaleDeck);
+      scaleDeck();
+
       const slides = Array.from(document.querySelectorAll(".slide"));
       let slideIndex = 0;
       let stepIndex = 0;

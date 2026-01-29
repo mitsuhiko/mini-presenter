@@ -59,6 +59,15 @@ When that flag is present, the injected script:
 
 Use this flag to disable autoplay audio or other heavy effects in the presenter view.
 
+## Fixed-size deck layout (recommended)
+Presenter previews render in small iframes, so fluid layouts can reflow and cause awkward previews.
+Use a fixed canvas (for example 1920×1080) and scale it to the viewport:
+- Wrap slides in a `.deck` container with a fixed width/height.
+- Center it with `position: absolute; top: 50%; left: 50%` and scale via `transform: translate(-50%, -50%) scale(...)`.
+- Recompute scale on `resize` so the deck stays crisp in both the main display and previews.
+
+See `examples/basic/index.html` for a working reference.
+
 ## Hash-based navigation (recommended)
 Use URL hashes to encode slide state, e.g. `#3` or `#4.2` for build steps.
 - Call `history.replaceState()` or `location.hash = ...` when state changes.
