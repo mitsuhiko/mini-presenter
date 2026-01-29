@@ -306,6 +306,13 @@ body {
   grid-template-columns: auto 1fr auto;
 }
 
+.presenter__footer-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .presenter__colors {
   display: flex;
   flex-wrap: wrap;
@@ -490,6 +497,13 @@ body {
   letter-spacing: 0.01em;
 }
 
+.presenter__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+  box-shadow: none;
+}
+
 .presenter__button:hover {
   background: var(--presenter-button-hover);
   transform: translateY(-1px);
@@ -604,6 +618,7 @@ body {
     width: 100%;
     grid-template-columns: auto 1fr auto;
   }
+
 
   .presenter__colors {
     justify-content: center;

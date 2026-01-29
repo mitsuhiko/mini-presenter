@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { injectPresenterScript } from "./injector.js";
@@ -325,6 +326,67 @@ export async function startServer({
         );
         sendJson(res, { notes }, req.method);
         return;
+      }
+
+      if (pathname === "/_/api/export") {
+        if (!isLocalRequest(req)) {
+          if (presenterKey) {
+            const providedKey = requestUrl.searchParams.get("key");
+            if (providedKey !== presenterKey) {
+              res.statusCode = 401;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Unauthorized\n");
+              return;
+            }
+          } else {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Forbidden\n");
+            return;
+          }
+        }
+
+        if (req.method === "HEAD") {
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/pdf");
+          res.end();
+          return;
+        }
+
+        const format = requestUrl.searchParams.get("format") || "pdf";
+        if (format !== "pdf") {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Unsupported export format\n");
+          return;
+        }
+
+        const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mini-presenter-export-"));
+        const outputPath = path.join(tempDir, `presentation.${format}`);
+
+        try {
+          const { exportPresentation } = await import("./export.js");
+          await exportPresentation({
+            rootDir,
+            rootUrl: normalizedRootUrl ? normalizedRootUrl.toString() : null,
+            outputPath,
+            format,
+          });
+          const data = await fs.readFile(outputPath);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename=\"presentation.${format}\"`);
+          res.end(data);
+          return;
+        } catch (error) {
+          console.error(error);
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to export slides\n");
+          return;
+        } finally {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        }
       }
 
       if (normalizedRootUrl) {

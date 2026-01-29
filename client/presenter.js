@@ -25,6 +25,7 @@ const resetToggleButton = document.querySelector("#reset-toggle");
 const resetConfirmButton = document.querySelector("#reset-confirm");
 const resetCancelButton = document.querySelector("#reset-cancel");
 const resetPopover = document.querySelector("#reset-popover");
+const exportButton = document.querySelector("#export-pdf");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
@@ -48,6 +49,17 @@ const LASER_SEND_THROTTLE_MS = 25;
 const DRAW_SEND_THROTTLE_MS = 16;
 
 const presenterKey = getPresenterKey();
+
+function buildExportUrl(format) {
+  const url = new URL("/_/api/export", window.location.origin);
+  if (format) {
+    url.searchParams.set("format", format);
+  }
+  if (presenterKey) {
+    url.searchParams.set("key", presenterKey);
+  }
+  return url.toString();
+}
 
 const DEFAULT_KEYBOARD = {
   next: ["ArrowRight", "PageDown", " ", "Spacebar"],
@@ -1434,6 +1446,50 @@ function handleKeyboard(event) {
   }
 }
 
+async function handleExportPdf() {
+  if (!exportButton || exportButton.disabled) {
+    return;
+  }
+
+  const label = exportButton.textContent || "Export PDF";
+  exportButton.disabled = true;
+  exportButton.textContent = "Exporting…";
+
+  let failed = false;
+
+  try {
+    const response = await fetch(buildExportUrl("pdf"));
+    if (!response.ok) {
+      throw new Error(`Export failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = "presentation.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => {
+      URL.revokeObjectURL(downloadUrl);
+    }, 1000);
+  } catch (error) {
+    failed = true;
+    console.error("Failed to export PDF", error);
+    exportButton.textContent = "Export failed";
+    window.setTimeout(() => {
+      if (exportButton) {
+        exportButton.textContent = label;
+      }
+    }, 2000);
+  } finally {
+    exportButton.disabled = false;
+    if (!failed) {
+      exportButton.textContent = label;
+    }
+  }
+}
+
 actionButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const action = button.dataset.action;
@@ -1472,6 +1528,10 @@ if (colorPickerInput) {
     }
   });
 }
+
+exportButton?.addEventListener("click", () => {
+  handleExportPdf();
+});
 
 if (clearToggleButton) {
   clearToggleButton.addEventListener("click", (event) => {

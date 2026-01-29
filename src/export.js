@@ -171,10 +171,53 @@ async function captureSlides({
   const getInfo = () => getSlideInfo(cdp, sessionId);
 
   if (slideList && slideList.length > 0) {
+    const hasStepEntries = slideList.some(
+      (slideId) => typeof slideId === "string" && slideId.includes(".")
+    );
+
     for (let index = 0; index < slideList.length; index += 1) {
       const slideId = slideList[index];
+      const nextSlideId = slideList[index + 1] ?? null;
       await gotoSlide(cdp, sessionId, slideId);
       await waitForSlideId(getInfo, slideId, 4000);
+
+      if (!hasStepEntries) {
+        let current = await getInfo();
+        if (nextSlideId) {
+          let guard = 0;
+          while (guard < 50) {
+            await navigateSlide(cdp, sessionId, "next");
+            const changed = await waitForSlideChange(getInfo, current.slideId, 2000);
+            if (!changed) {
+              break;
+            }
+            const next = await getInfo();
+            if (next.slideId === nextSlideId) {
+              await navigateSlide(cdp, sessionId, "prev");
+              await waitForSlideChange(getInfo, next.slideId, 2000);
+              current = await getInfo();
+              break;
+            }
+            current = next;
+            guard += 1;
+          }
+        } else {
+          let stalled = 0;
+          let guard = 0;
+          while (stalled < MAX_STALLED_ATTEMPTS && guard < 50) {
+            await navigateSlide(cdp, sessionId, "next");
+            const changed = await waitForSlideChange(getInfo, current.slideId, 2000);
+            if (!changed) {
+              stalled += 1;
+            } else {
+              stalled = 0;
+              current = await getInfo();
+            }
+            guard += 1;
+          }
+        }
+      }
+
       await sleep(delay);
       const { data } = await cdp.send(
         "Page.captureScreenshot",
