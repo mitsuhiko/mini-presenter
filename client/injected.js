@@ -256,30 +256,62 @@
     `;
 
     const buttonStyle = `
-      border: none;
-      background: rgba(255, 255, 255, 0.9);
-      color: #333;
-      padding: 8px 12px;
-      border-radius: 6px;
+      border: 2px solid #8f653c;
+      background: #c08a57;
+      color: #fdf6ee;
+      padding: 10px 16px;
+      border-radius: 10px;
       cursor: pointer;
       font-size: 14px;
-      font-weight: 500;
-      transition: background 0.15s ease;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      box-shadow: 0 4px 0 #704f2d, 0 8px 12px rgba(0, 0, 0, 0.25);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
     `;
 
     const fullscreenBtn = document.createElement("button");
-    fullscreenBtn.textContent = "⛶ Fullscreen";
+    fullscreenBtn.textContent = "Fullscreen";
     fullscreenBtn.style.cssText = buttonStyle;
     fullscreenBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
     fullscreenBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
     fullscreenBtn.addEventListener("click", toggleFullscreen);
 
     const presenterBtn = document.createElement("button");
-    presenterBtn.textContent = "🎤 Presenter";
+    presenterBtn.textContent = "Presenter";
     presenterBtn.style.cssText = buttonStyle;
     presenterBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
     presenterBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
     presenterBtn.addEventListener("click", openPresenterView);
+
+    const applyButtonState = (button, state) => {
+      if (state === "active") {
+        button.style.background = "#b17845";
+        button.style.transform = "translateY(3px)";
+        button.style.boxShadow = "0 2px 0 #704f2d, 0 6px 10px rgba(0, 0, 0, 0.22)";
+        return;
+      }
+      if (state === "hover") {
+        button.style.background = "#b17845";
+        button.style.transform = "translateY(-1px)";
+        button.style.boxShadow = "0 5px 0 #704f2d, 0 10px 14px rgba(0, 0, 0, 0.26)";
+        return;
+      }
+      button.style.background = "#c08a57";
+      button.style.transform = "translateY(0)";
+      button.style.boxShadow = "0 4px 0 #704f2d, 0 8px 12px rgba(0, 0, 0, 0.25)";
+    };
+
+    const wireButtonEffects = (button) => {
+      button.addEventListener("mouseenter", () => applyButtonState(button, "hover"));
+      button.addEventListener("mouseleave", () => applyButtonState(button, "base"));
+      button.addEventListener("mousedown", () => applyButtonState(button, "active"));
+      button.addEventListener("mouseup", () => applyButtonState(button, "hover"));
+      button.addEventListener("blur", () => applyButtonState(button, "base"));
+      applyButtonState(button, "base");
+    };
+
+    wireButtonEffects(fullscreenBtn);
+    wireButtonEffects(presenterBtn);
 
     overlay.appendChild(fullscreenBtn);
     overlay.appendChild(presenterBtn);
