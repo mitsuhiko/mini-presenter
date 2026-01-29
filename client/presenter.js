@@ -17,6 +17,14 @@ const actionButtons = document.querySelectorAll("[data-action]");
 const toolButtons = document.querySelectorAll("[data-tool]");
 const colorButtons = document.querySelectorAll(".presenter__color[data-color]");
 const colorPickerInput = document.querySelector("#draw-color-picker");
+const clearToggleButton = document.querySelector("#clear-toggle");
+const clearConfirmButton = document.querySelector("#clear-confirm");
+const clearCancelButton = document.querySelector("#clear-cancel");
+const clearPopover = document.querySelector("#clear-popover");
+const resetToggleButton = document.querySelector("#reset-toggle");
+const resetConfirmButton = document.querySelector("#reset-confirm");
+const resetCancelButton = document.querySelector("#reset-cancel");
+const resetPopover = document.querySelector("#reset-popover");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
@@ -275,9 +283,9 @@ function formatSlideDisplay(slideId) {
   const rawValue = slideId && slideId !== "—" ? slideId : "—";
   const value = rawValue === "—" ? rawValue : rawValue.replace(/^#/, "");
   if (value !== "—" && total) {
-    return `Slide ${value} of ${total}`;
+    return `${value}/${total}`;
   }
-  return `Slide ${value}`;
+  return value;
 }
 
 function updateSlideIndicator(slideId) {
@@ -971,10 +979,6 @@ function setDrawColor(color, { fromPicker = false } = {}) {
 }
 
 function setActiveTool(tool) {
-  if (tool === "clear") {
-    clearDrawings({ send: true });
-    return;
-  }
   activeTool = activeTool === tool ? "none" : tool;
   if (previewSection) {
     previewSection.classList.toggle("presenter__preview--drawing", activeTool !== "none");
@@ -987,6 +991,32 @@ function setActiveTool(tool) {
     drawingActive = false;
     laserActive = false;
   }
+}
+
+function setClearPopoverOpen(open) {
+  if (!clearPopover || !clearToggleButton) {
+    return;
+  }
+  clearPopover.dataset.open = open ? "true" : "false";
+  clearPopover.setAttribute("aria-hidden", open ? "false" : "true");
+  clearToggleButton.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeClearPopover() {
+  setClearPopoverOpen(false);
+}
+
+function setResetPopoverOpen(open) {
+  if (!resetPopover || !resetToggleButton) {
+    return;
+  }
+  resetPopover.dataset.open = open ? "true" : "false";
+  resetPopover.setAttribute("aria-hidden", open ? "false" : "true");
+  resetToggleButton.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeResetPopover() {
+  setResetPopoverOpen(false);
 }
 
 function sendDrawMessage(payload) {
@@ -1426,7 +1456,7 @@ colorButtons.forEach((button) => {
     const color = button.dataset.color;
     if (color) {
       setDrawColor(color);
-      if (activeTool === "none") {
+      if (activeTool !== "draw") {
         setActiveTool("draw");
       }
     }
@@ -1436,11 +1466,65 @@ colorButtons.forEach((button) => {
 if (colorPickerInput) {
   colorPickerInput.addEventListener("input", () => {
     setDrawColor(colorPickerInput.value, { fromPicker: true });
-    if (activeTool === "none") {
+    if (activeTool !== "draw") {
       setActiveTool("draw");
     }
   });
 }
+
+if (clearToggleButton) {
+  clearToggleButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = clearPopover?.dataset.open === "true";
+    setClearPopoverOpen(!isOpen);
+  });
+}
+
+clearConfirmButton?.addEventListener("click", () => {
+  clearDrawings({ send: true });
+  closeClearPopover();
+});
+
+clearCancelButton?.addEventListener("click", () => {
+  closeClearPopover();
+});
+
+if (resetToggleButton) {
+  resetToggleButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = resetPopover?.dataset.open === "true";
+    setResetPopoverOpen(!isOpen);
+  });
+}
+
+resetConfirmButton?.addEventListener("click", () => {
+  resetTimer();
+  closeResetPopover();
+});
+
+resetCancelButton?.addEventListener("click", () => {
+  closeResetPopover();
+});
+
+document.addEventListener("click", (event) => {
+  if (clearPopover?.dataset.open === "true") {
+    if (!clearPopover.contains(event.target) && !clearToggleButton?.contains(event.target)) {
+      closeClearPopover();
+    }
+  }
+  if (resetPopover?.dataset.open === "true") {
+    if (!resetPopover.contains(event.target) && !resetToggleButton?.contains(event.target)) {
+      closeResetPopover();
+    }
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeClearPopover();
+    closeResetPopover();
+  }
+});
 
 window.addEventListener("message", (event) => {
   const payload = event.data;
@@ -1472,9 +1556,11 @@ if (nextPreviewFrame) {
 
 timerToggleButton.addEventListener("click", toggleTimer);
 
-timerResetButton.addEventListener("click", () => {
-  resetTimer();
-});
+if (timerResetButton) {
+  timerResetButton.addEventListener("click", () => {
+    resetTimer();
+  });
+}
 
 document.addEventListener("keydown", handleKeyboard);
 

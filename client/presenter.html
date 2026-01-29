@@ -62,17 +62,18 @@
 
           <section class="presenter__controls">
             <div class="presenter__nav">
-              <button class="presenter__button" data-action="prev">◀ Prev</button>
-              <button class="presenter__button" data-action="next">Next ▶</button>
-            </div>
-            <div class="presenter__timer-controls">
-              <button class="presenter__button" id="timer-toggle">Pause</button>
-              <button class="presenter__button" id="timer-reset">⟲ Reset</button>
+              <button class="presenter__button presenter__button--compact" data-action="prev">◀ Prev</button>
+              <div class="presenter__slide-count" id="current-slide" aria-live="polite">—</div>
+              <button class="presenter__button presenter__button--compact" data-action="next">Next ▶</button>
             </div>
             <div class="presenter__tools">
-              <button class="presenter__button presenter__tool" data-tool="draw">✎ Draw</button>
-              <button class="presenter__button presenter__tool" data-tool="laser">● Laser</button>
-              <button class="presenter__button presenter__tool" data-tool="clear">Clear</button>
+              <button
+                class="presenter__button presenter__button--round presenter__button--laser presenter__tool"
+                data-tool="laser"
+                aria-label="Laser pointer"
+              >
+                ✸
+              </button>
               <div class="presenter__colors" role="group" aria-label="Drawing colors">
                 <button class="presenter__color" data-color="#ff4d4d" style="--color: #ff4d4d;" aria-label="Red"></button>
                 <button class="presenter__color" data-color="#ff8a00" style="--color: #ff8a00;" aria-label="Orange"></button>
@@ -82,19 +83,63 @@
                   <input type="color" id="draw-color-picker" value="#ff4d4d" />
                 </label>
               </div>
+              <div class="presenter__clear">
+                <button
+                  class="presenter__button presenter__button--round presenter__clear-toggle"
+                  id="clear-toggle"
+                  aria-label="Clear drawings"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-controls="clear-popover"
+                  type="button"
+                >
+                  ⌫
+                </button>
+                <div class="presenter__clear-popover" id="clear-popover" role="dialog" aria-hidden="true">
+                  <div class="presenter__clear-title">Clear drawings?</div>
+                  <div class="presenter__clear-actions">
+                    <button class="presenter__button presenter__button--tiny" id="clear-confirm" type="button">Clear</button>
+                    <button class="presenter__button presenter__button--tiny" id="clear-cancel" type="button">Cancel</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
           <footer class="presenter__footer">
             <div class="presenter__footer-meta">
-              <div class="presenter__timer" id="timer">00:00:00</div>
-              <div class="presenter__slide" id="current-slide">Slide —</div>
+              <div class="presenter__timer-wrap">
+                <div class="presenter__timer" id="timer">00:00:00</div>
+                <div class="presenter__timer-actions">
+                  <button class="presenter__button presenter__button--tiny" id="timer-toggle">Pause</button>
+                  <div class="presenter__reset">
+                    <button
+                      class="presenter__button presenter__button--tiny presenter__reset-toggle"
+                      id="reset-toggle"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                      aria-controls="reset-popover"
+                      type="button"
+                    >
+                      Reset
+                    </button>
+                    <div class="presenter__reset-popover" id="reset-popover" role="dialog" aria-hidden="true">
+                      <div class="presenter__reset-title">Reset timer?</div>
+                      <div class="presenter__reset-actions">
+                        <button class="presenter__button presenter__button--tiny" id="reset-confirm" type="button">Reset</button>
+                        <button class="presenter__button presenter__button--tiny" id="reset-cancel" type="button">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="presenter__footer-status">
               <div>Displays connected: <span id="display-count">0</span></div>
               <div id="connection-status" class="presenter__connection">Disconnected</div>
             </div>
           </footer>
+          </section>
         </div>
       </section>
 
