@@ -254,9 +254,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  height: 14rem;
-  max-height: 14rem;
-  overflow: hidden;
+  max-height: clamp(10rem, 30vh, 18rem);
+  overflow: auto;
 }
 
 .presenter__notes-header {
@@ -279,7 +278,8 @@ body {
 
 .presenter__notes-content {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow: visible;
   white-space: pre-wrap;
   line-height: 1.5;
   font-size: 1rem;
@@ -588,8 +588,7 @@ body {
   }
 
   .presenter__notes {
-    height: 10rem;
-    max-height: 10rem;
+    max-height: clamp(8rem, 24vh, 12rem);
     padding: 1rem;
   }
 
