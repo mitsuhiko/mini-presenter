@@ -1269,6 +1269,7 @@ function updateSlideState({
   const stateKey = slideId || hash || "—";
   updateSlideIndicator(stateKey);
 
+  const previousHash = lastKnownHash;
   const nextHash = hash || slideId || "#";
   lastKnownHash = nextHash;
   updatePreview(nextHash);
@@ -1286,7 +1287,7 @@ function updateSlideState({
     setPreviewActive(nextPreviewSection, displays > 0);
   }
 
-  if (stateKey !== lastSlideId) {
+  if (stateKey !== lastSlideId || nextHash !== previousHash) {
     const previousSlideId = lastSlideId;
     lastSlideId = stateKey;
     clearDrawings({ send: true });
