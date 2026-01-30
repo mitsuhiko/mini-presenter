@@ -126,6 +126,14 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
   "timer": {
     "mode": "countdown",
     "durationMinutes": 30
+  },
+  "draw": {
+    "color": "#ff4d4d",
+    "size": 0.004
+  },
+  "laser": {
+    "color": "#ffdd4d",
+    "size": 0.012
   }
 }
 ```
@@ -138,6 +146,8 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
 - `timer.durationMinutes` / `timer.durationSeconds`: Total countdown duration.
   The countdown starts after leaving the first slide and can be started manually
   with the presenter timer button.
+- `draw.color` / `draw.size`: Defaults for drawing color and size (ratio of slide width).
+- `laser.color` / `laser.size`: Defaults for laser color and size (ratio of slide width).
 
 The config is available at `/_/api/config`.
 

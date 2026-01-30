@@ -327,6 +327,12 @@ body {
   grid-template-columns: auto 1fr auto;
 }
 
+.presenter__tool-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .presenter__export-fab {
   position: absolute;
   right: 0.5rem;
@@ -344,6 +350,28 @@ body {
   align-items: center;
   justify-content: center;
   flex: 1 1 auto;
+}
+
+.presenter__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.15rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.presenter__size-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--presenter-text-subtle);
+}
+
+.presenter__size-slider {
+  width: 4.6rem;
+  accent-color: #ffd18a;
 }
 
 .presenter__color {
@@ -472,6 +500,24 @@ body {
 
 .presenter__clear-toggle {
   font-size: 0.85rem;
+}
+
+.presenter__button--draw {
+  background: #4d7cff;
+  border-color: #1f3d9b;
+  color: #f1f6ff;
+  box-shadow: 0 3px 0 #1a2f72, 0 6px 10px rgba(0, 0, 0, 0.2);
+}
+
+.presenter__button--draw:hover {
+  background: #5a86ff;
+  box-shadow: 0 4px 0 #1a2f72, 0 8px 12px rgba(0, 0, 0, 0.22);
+}
+
+.presenter__button--draw:active,
+.presenter__button--draw.presenter__button--active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #1a2f72, 0 5px 8px rgba(0, 0, 0, 0.2);
 }
 
 .presenter__button--laser {

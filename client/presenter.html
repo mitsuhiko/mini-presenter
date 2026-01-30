@@ -67,21 +67,43 @@
               <button class="presenter__button presenter__button--compact" data-action="next">Next ▶</button>
             </div>
             <div class="presenter__tools">
-              <button
-                class="presenter__button presenter__button--round presenter__button--laser presenter__tool"
-                data-tool="laser"
-                aria-label="Laser pointer"
-              >
-                ✸
-              </button>
-              <div class="presenter__colors" role="group" aria-label="Drawing colors">
+              <div class="presenter__tool-buttons" role="group" aria-label="Drawing tools">
+                <button
+                  class="presenter__button presenter__button--round presenter__button--draw presenter__tool"
+                  data-tool="draw"
+                  aria-label="Draw"
+                >
+                  ✎
+                </button>
+                <button
+                  class="presenter__button presenter__button--round presenter__button--laser presenter__tool"
+                  data-tool="laser"
+                  aria-label="Laser pointer"
+                >
+                  ✸
+                </button>
+              </div>
+              <div class="presenter__colors" role="group" aria-label="Tool colors">
                 <button class="presenter__color" data-color="#ff4d4d" style="--color: #ff4d4d;" aria-label="Red"></button>
                 <button class="presenter__color" data-color="#ff8a00" style="--color: #ff8a00;" aria-label="Orange"></button>
+                <button class="presenter__color" data-color="#ffdd4d" style="--color: #ffdd4d;" aria-label="Yellow"></button>
                 <button class="presenter__color" data-color="#35c276" style="--color: #35c276;" aria-label="Green"></button>
                 <button class="presenter__color" data-color="#4d7cff" style="--color: #4d7cff;" aria-label="Blue"></button>
                 <label class="presenter__color presenter__color--picker" aria-label="Custom color">
                   <input type="color" id="draw-color-picker" value="#ff4d4d" />
                 </label>
+                <div class="presenter__size" role="group" aria-label="Stroke size">
+                  <label class="presenter__size-label" for="draw-size-slider">Size</label>
+                  <input
+                    class="presenter__size-slider"
+                    id="draw-size-slider"
+                    type="range"
+                    min="0.002"
+                    max="0.02"
+                    step="0.001"
+                    value="0.004"
+                  />
+                </div>
               </div>
               <div class="presenter__clear">
                 <button

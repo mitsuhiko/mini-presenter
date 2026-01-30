@@ -17,6 +17,7 @@ const actionButtons = document.querySelectorAll("[data-action]");
 const toolButtons = document.querySelectorAll("[data-tool]");
 const colorButtons = document.querySelectorAll(".presenter__color[data-color]");
 const colorPickerInput = document.querySelector("#draw-color-picker");
+const sizeSlider = document.querySelector("#draw-size-slider");
 const clearToggleButton = document.querySelector("#clear-toggle");
 const clearConfirmButton = document.querySelector("#clear-confirm");
 const clearCancelButton = document.querySelector("#clear-cancel");
@@ -364,6 +365,9 @@ let relativeNextPreviewEndHash = null;
 let previewAspectRatio = null;
 let activeTool = "none";
 let activeDrawColor = DRAW_COLOR;
+let activeDrawSize = DRAW_LINE_WIDTH_RATIO;
+let activeLaserColor = LASER_COLOR;
+let activeLaserSize = LASER_RADIUS_RATIO;
 let drawingActive = false;
 let laserActive = false;
 let drawContext = null;
@@ -501,6 +505,25 @@ function applyConfig(config) {
   }
   updateTimerDisplay();
   updateTimerToggleLabel();
+
+  const drawConfig = config?.draw ?? {};
+  if (typeof drawConfig.color === "string") {
+    activeDrawColor = drawConfig.color;
+  }
+  const drawSize = Number(drawConfig.size);
+  if (Number.isFinite(drawSize) && drawSize > 0) {
+    activeDrawSize = drawSize;
+  }
+
+  const laserConfig = config?.laser ?? {};
+  if (typeof laserConfig.color === "string") {
+    activeLaserColor = laserConfig.color;
+  }
+  const laserSize = Number(laserConfig.size);
+  if (Number.isFinite(laserSize) && laserSize > 0) {
+    activeLaserSize = laserSize;
+  }
+  syncToolControls();
 
   if (lastSlideId || lastKnownHash !== "#") {
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
@@ -1527,27 +1550,78 @@ function renderDrawMessage(message) {
   }
 }
 
-function setDrawColor(color, { fromPicker = false } = {}) {
-  if (!color || typeof color !== "string") {
-    return;
-  }
-  activeDrawColor = color;
+function getControlTool() {
+  return activeTool === "laser" ? "laser" : "draw";
+}
+
+function syncColorControls(tool = getControlTool()) {
+  const color = tool === "laser" ? activeLaserColor : activeDrawColor;
   if (colorPickerInput && colorPickerInput.value !== color) {
     colorPickerInput.value = color;
   }
   colorButtons.forEach((button) => {
-    const isActive = button.dataset.color === color && !fromPicker;
+    const isActive = button.dataset.color === color;
     button.classList.toggle("presenter__color--active", isActive);
   });
+}
+
+function syncSizeControl(tool = getControlTool()) {
+  if (!sizeSlider) {
+    return;
+  }
+  const size = tool === "laser" ? activeLaserSize : activeDrawSize;
+  sizeSlider.value = String(size);
+}
+
+function syncToolControls(tool = getControlTool()) {
+  syncColorControls(tool);
+  syncSizeControl(tool);
+}
+
+function setToolColor(tool, color, { fromPicker = false } = {}) {
+  if (!color || typeof color !== "string") {
+    return;
+  }
+  if (tool === "laser") {
+    activeLaserColor = color;
+  } else {
+    activeDrawColor = color;
+  }
+  if (tool !== getControlTool()) {
+    return;
+  }
+  if (colorPickerInput && colorPickerInput.value !== color) {
+    colorPickerInput.value = color;
+  }
   if (fromPicker) {
     colorButtons.forEach((button) => {
       button.classList.remove("presenter__color--active");
     });
+    return;
+  }
+  colorButtons.forEach((button) => {
+    const isActive = button.dataset.color === color;
+    button.classList.toggle("presenter__color--active", isActive);
+  });
+}
+
+function setToolSize(tool, size) {
+  if (!Number.isFinite(size) || size <= 0) {
+    return;
+  }
+  if (tool === "laser") {
+    activeLaserSize = size;
+  } else {
+    activeDrawSize = size;
+  }
+  if (tool === getControlTool() && sizeSlider) {
+    sizeSlider.value = String(size);
   }
 }
 
 function setActiveTool(tool) {
-  activeTool = activeTool === tool ? "none" : tool;
+  const nextTool = activeTool === tool ? "none" : tool;
+  activeTool = nextTool;
   if (previewSection) {
     previewSection.classList.toggle("presenter__preview--drawing", activeTool !== "none");
   }
@@ -1559,6 +1633,7 @@ function setActiveTool(tool) {
     drawingActive = false;
     laserActive = false;
   }
+  syncToolControls();
 }
 
 function setClearPopoverOpen(open) {
@@ -1607,7 +1682,7 @@ function handleDrawPointerDown(event) {
       x: point.normalizedX,
       y: point.normalizedY,
       color: activeDrawColor,
-      size: DRAW_LINE_WIDTH_RATIO,
+      size: activeDrawSize,
     };
     renderDrawMessage(message);
     sendDrawMessage(message);
@@ -1635,8 +1710,8 @@ function handleLaserMove(event, forceSend = false) {
     action: "laser",
     x: point.normalizedX,
     y: point.normalizedY,
-    color: LASER_COLOR,
-    radius: LASER_RADIUS_RATIO,
+    color: activeLaserColor,
+    radius: activeLaserSize,
   };
   renderLaserPoint(message);
   sendDrawMessage(message);
@@ -2109,19 +2184,33 @@ toolButtons.forEach((button) => {
 colorButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const color = button.dataset.color;
-    if (color) {
-      setDrawColor(color);
-      if (activeTool !== "draw") {
-        setActiveTool("draw");
-      }
+    if (!color) {
+      return;
+    }
+    const tool = activeTool === "none" ? "draw" : activeTool;
+    setToolColor(tool, color);
+    if (activeTool === "none") {
+      setActiveTool("draw");
     }
   });
 });
 
 if (colorPickerInput) {
   colorPickerInput.addEventListener("input", () => {
-    setDrawColor(colorPickerInput.value, { fromPicker: true });
-    if (activeTool !== "draw") {
+    const tool = activeTool === "none" ? "draw" : activeTool;
+    setToolColor(tool, colorPickerInput.value, { fromPicker: true });
+    if (activeTool === "none") {
+      setActiveTool("draw");
+    }
+  });
+}
+
+if (sizeSlider) {
+  sizeSlider.addEventListener("input", () => {
+    const size = Number(sizeSlider.value);
+    const tool = activeTool === "laser" ? "laser" : "draw";
+    setToolSize(tool, size);
+    if (activeTool === "none") {
       setActiveTool("draw");
     }
   });
@@ -2370,7 +2459,7 @@ updatePreview(lastKnownHash);
 setNotesDisplay("Waiting for slide updates…", "Idle");
 setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 attachDrawingHandlers();
-setDrawColor(DRAW_COLOR);
+syncToolControls();
 setActiveTool("none");
 connect();
 
