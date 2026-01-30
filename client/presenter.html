@@ -162,6 +162,30 @@
             </div>
           </footer>
           <div class="presenter__export-fab">
+            <div class="presenter__recording">
+              <button
+                class="presenter__button presenter__button--compact presenter__button--recording"
+                id="recording-toggle"
+                type="button"
+                aria-label="Record"
+                title="Record"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="recording-confirm-popover"
+              >
+                ●
+              </button>
+              <div class="presenter__record-popover" id="recording-confirm-popover" role="dialog" aria-hidden="true">
+                <div class="presenter__record-title">Replace recording?</div>
+                <div class="presenter__record-actions">
+                  <button class="presenter__button presenter__button--tiny" id="recording-confirm" type="button">Replace</button>
+                  <button class="presenter__button presenter__button--tiny" id="recording-cancel" type="button">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <button class="presenter__button presenter__button--compact" id="recording-play" type="button" data-visible="false" aria-label="Play recording" title="Play recording">
+              ▶
+            </button>
             <button class="presenter__button presenter__button--compact presenter__button--badge" id="questions-toggle" type="button">
               <span>Questions</span>
               <span class="presenter__button-badge" id="questions-count" aria-hidden="true"></span>
@@ -319,6 +343,50 @@
                   </label>
                 </div>
                 <div class="presenter__settings-hint">Countdown starts after the first slide or via the timer button.</div>
+              </div>
+
+              <div class="presenter__settings-label">Recording</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid">
+                  <label class="presenter__settings-subrow">
+                    <span>Toggle hotkey</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-recording" type="text" placeholder="Shift+R" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-recording">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Audio input</span>
+                    <select class="presenter__settings-select" id="settings-recording-device">
+                      <option value="">System default</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="presenter__settings-recording-actions">
+                  <div class="presenter__recording presenter__recording--settings">
+                    <button
+                      class="presenter__button presenter__button--tiny presenter__button--recording"
+                      id="settings-recording-toggle"
+                      type="button"
+                      aria-label="Record"
+                      title="Record"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                      aria-controls="settings-recording-confirm-popover"
+                    >
+                      ●
+                    </button>
+                    <div class="presenter__record-popover" id="settings-recording-confirm-popover" role="dialog" aria-hidden="true">
+                      <div class="presenter__record-title">Replace recording?</div>
+                      <div class="presenter__record-actions">
+                        <button class="presenter__button presenter__button--tiny" id="settings-recording-confirm" type="button">Replace</button>
+                        <button class="presenter__button presenter__button--tiny" id="settings-recording-cancel" type="button">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="presenter__settings-recording-status" id="settings-recording-status"></span>
+                </div>
+                <div class="presenter__settings-hint">Records slide navigation, drawings, and audio until stopped.</div>
               </div>
             </div>
           </div>

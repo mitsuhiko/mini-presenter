@@ -27,6 +27,11 @@ const resetConfirmButton = document.querySelector("#reset-confirm");
 const resetCancelButton = document.querySelector("#reset-cancel");
 const resetPopover = document.querySelector("#reset-popover");
 const exportButton = document.querySelector("#export-pdf");
+const recordingToggleButton = document.querySelector("#recording-toggle");
+const recordingPlayButton = document.querySelector("#recording-play");
+const recordingConfirmPopover = document.querySelector("#recording-confirm-popover");
+const recordingConfirmButton = document.querySelector("#recording-confirm");
+const recordingCancelButton = document.querySelector("#recording-cancel");
 const settingsButton = document.querySelector("#settings-toggle");
 const settingsOverlay = document.querySelector("#settings-overlay");
 const settingsPanel = document.querySelector("#settings-panel");
@@ -51,6 +56,13 @@ const settingsPreviewRelative = document.querySelector("#settings-preview-relati
 const settingsTimerMode = document.querySelector("#settings-timer-mode");
 const settingsTimerMinutes = document.querySelector("#settings-timer-minutes");
 const settingsTimerSeconds = document.querySelector("#settings-timer-seconds");
+const settingsRecordingToggle = document.querySelector("#settings-recording-toggle");
+const settingsRecordingStatus = document.querySelector("#settings-recording-status");
+const settingsRecordingConfirmPopover = document.querySelector("#settings-recording-confirm-popover");
+const settingsRecordingConfirmButton = document.querySelector("#settings-recording-confirm");
+const settingsRecordingCancelButton = document.querySelector("#settings-recording-cancel");
+const settingsKeyRecording = document.querySelector("#settings-key-recording");
+const settingsRecordingDevice = document.querySelector("#settings-recording-device");
 const settingsJson = document.querySelector("#settings-json");
 const settingsJsonStatus = document.querySelector("#settings-json-status");
 const brandDisplay = document.querySelector(".presenter__brand");
@@ -85,6 +97,10 @@ const LASER_RADIUS_RATIO = 0.012;
 const LASER_FADE_MS = 180;
 const LASER_SEND_THROTTLE_MS = 25;
 const DRAW_SEND_THROTTLE_MS = 16;
+const RECORDING_MIME_TYPES = ["audio/webm;codecs=opus", "audio/webm"];
+const RECORD_SYMBOL = "●";
+const PLAY_SYMBOL = "▶";
+const STOP_SYMBOL = "■";
 
 const presenterKey = getPresenterKey();
 
@@ -107,6 +123,15 @@ function buildConfigUrl() {
   return url.toString();
 }
 
+function buildRecordingUrl(pathname = "") {
+  const suffix = pathname.startsWith("/") ? pathname : pathname ? `/${pathname}` : "";
+  const url = new URL(`/_/api/recording${suffix}`, window.location.origin);
+  if (presenterKey) {
+    url.searchParams.set("key", presenterKey);
+  }
+  return url.toString();
+}
+
 const DEFAULT_KEYBOARD = {
   next: ["ArrowRight", "PageDown", " ", "Spacebar"],
   prev: ["ArrowLeft", "PageUp"],
@@ -118,6 +143,7 @@ const DEFAULT_SHORTCUTS = {
   fullscreen: ["f"],
   presenter: ["p"],
   questions: ["q"],
+  recording: ["Shift+R"],
 };
 
 const QUESTIONS_POLL_INTERVAL_MS = 6000;
@@ -162,6 +188,7 @@ function applyShortcutConfig(config) {
     fullscreen: normalizeShortcutList(shortcuts.fullscreen, DEFAULT_SHORTCUTS.fullscreen),
     presenter: normalizeShortcutList(shortcuts.presenter, DEFAULT_SHORTCUTS.presenter),
     questions: normalizeShortcutList(shortcuts.questions, DEFAULT_SHORTCUTS.questions),
+    recording: normalizeShortcutList(shortcuts.recording, DEFAULT_SHORTCUTS.recording),
   };
 }
 
@@ -253,6 +280,11 @@ function matchesShortcut(event, shortcut) {
 }
 
 function resolveShortcutAction(event) {
+  for (const shortcut of shortcutConfig.recording ?? []) {
+    if (matchesShortcut(event, shortcut)) {
+      return "recording";
+    }
+  }
   for (const shortcut of shortcutConfig.questions ?? []) {
     if (matchesShortcut(event, shortcut)) {
       return "questions";
@@ -647,6 +679,24 @@ let shortcutConfig = { ...DEFAULT_SHORTCUTS };
 let questionsPollingTimer = null;
 let questionsAvailable = true;
 let pendingDeleteQuestionId = null;
+let recordingActive = false;
+let recordingSaving = false;
+let recordingPlaybackActive = false;
+let recordingAvailable = false;
+let recordingStartTime = 0;
+let recordingEvents = [];
+let recordingAudioChunks = [];
+let recordingRecorder = null;
+let recordingStream = null;
+let recordingAudioMimeType = null;
+let recordingDeviceId = null;
+let playbackAudio = null;
+let playbackEvents = [];
+let playbackIndex = 0;
+let playbackFrame = null;
+let playbackStopRequested = false;
+let cachedRecordingData = null;
+let recordingStatusTimer = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -662,6 +712,389 @@ function sendMessage(message) {
 
 function sendCommand(action, hash) {
   sendMessage({ type: "command", action, hash });
+}
+
+function pickRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined") {
+    return null;
+  }
+  for (const candidate of RECORDING_MIME_TYPES) {
+    if (MediaRecorder.isTypeSupported(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function getRecordingTimestamp() {
+  if (!recordingStartTime) {
+    return 0;
+  }
+  return Math.max(0, performance.now() - recordingStartTime);
+}
+
+function recordEvent(payload) {
+  if (!recordingActive || recordingPlaybackActive) {
+    return;
+  }
+  recordingEvents.push({ time: Math.round(getRecordingTimestamp()), ...payload });
+}
+
+function recordSlideState({ slideId, hash }) {
+  recordEvent({ type: "state", slideId: slideId ?? null, hash: hash ?? null });
+}
+
+function setRecordingStatus(message = "", { level = "info", timeout = 0 } = {}) {
+  if (recordingStatusTimer) {
+    clearTimeout(recordingStatusTimer);
+    recordingStatusTimer = null;
+  }
+  if (settingsRecordingStatus) {
+    settingsRecordingStatus.textContent = message;
+    settingsRecordingStatus.dataset.level = level === "error" ? "error" : "info";
+  }
+  if (message && timeout) {
+    recordingStatusTimer = setTimeout(() => {
+      if (settingsRecordingStatus) {
+        settingsRecordingStatus.textContent = "";
+        settingsRecordingStatus.dataset.level = "info";
+      }
+      recordingStatusTimer = null;
+    }, timeout);
+  }
+}
+
+function setRecordingAvailability(available, data = null) {
+  recordingAvailable = available;
+  if (available && data) {
+    cachedRecordingData = data;
+  }
+  updateRecordingControls();
+}
+
+function updateRecordingControls() {
+  const isBusy = recordingSaving || recordingPlaybackActive;
+  if (recordingToggleButton) {
+    recordingToggleButton.textContent = recordingActive ? STOP_SYMBOL : RECORD_SYMBOL;
+    recordingToggleButton.disabled = isBusy;
+    recordingToggleButton.dataset.active = recordingActive ? "true" : "false";
+    recordingToggleButton.setAttribute("aria-label", recordingActive ? "Stop recording" : "Record");
+    recordingToggleButton.setAttribute("title", recordingActive ? "Stop recording" : "Record");
+  }
+  if (settingsRecordingToggle) {
+    settingsRecordingToggle.textContent = recordingActive ? STOP_SYMBOL : RECORD_SYMBOL;
+    settingsRecordingToggle.disabled = isBusy;
+    settingsRecordingToggle.dataset.active = recordingActive ? "true" : "false";
+    settingsRecordingToggle.setAttribute("aria-label", recordingActive ? "Stop recording" : "Record");
+    settingsRecordingToggle.setAttribute("title", recordingActive ? "Stop recording" : "Record");
+  }
+  if (recordingPlayButton) {
+    recordingPlayButton.textContent = recordingPlaybackActive ? STOP_SYMBOL : PLAY_SYMBOL;
+    recordingPlayButton.disabled = !recordingAvailable || recordingActive || recordingSaving;
+    recordingPlayButton.dataset.visible = recordingAvailable ? "true" : "false";
+    recordingPlayButton.setAttribute(
+      "aria-label",
+      recordingPlaybackActive ? "Stop playback" : "Play recording"
+    );
+    recordingPlayButton.setAttribute(
+      "title",
+      recordingPlaybackActive ? "Stop playback" : "Play recording"
+    );
+  }
+}
+
+function stopRecordingStream() {
+  if (recordingStream) {
+    recordingStream.getTracks().forEach((track) => track.stop());
+    recordingStream = null;
+  }
+}
+
+function setRecordingConfirmOpen(popover, toggleButton, open) {
+  if (!popover || !toggleButton) {
+    return;
+  }
+  popover.dataset.open = open ? "true" : "false";
+  popover.setAttribute("aria-hidden", open ? "false" : "true");
+  toggleButton.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeRecordingConfirmPopovers() {
+  setRecordingConfirmOpen(recordingConfirmPopover, recordingToggleButton, false);
+  setRecordingConfirmOpen(settingsRecordingConfirmPopover, settingsRecordingToggle, false);
+}
+
+function shouldConfirmRecording() {
+  return recordingAvailable && !recordingActive && !recordingSaving && !recordingPlaybackActive;
+}
+
+function requestRecordingStart(source) {
+  if (recordingActive) {
+    stopRecording();
+    return;
+  }
+  if (shouldConfirmRecording()) {
+    if (source === "settings") {
+      setRecordingConfirmOpen(settingsRecordingConfirmPopover, settingsRecordingToggle, true);
+    } else {
+      setRecordingConfirmOpen(recordingConfirmPopover, recordingToggleButton, true);
+    }
+    return;
+  }
+  startRecording();
+}
+
+async function saveRecordingSession({ audioBlob, durationMs }) {
+  const mimeType = recordingAudioMimeType || "audio/webm";
+  const audioResponse = await fetch(buildRecordingUrl("audio"), {
+    method: "PUT",
+    headers: { "Content-Type": mimeType },
+    body: audioBlob,
+  });
+  if (!audioResponse.ok) {
+    const message = await audioResponse.text().catch(() => "");
+    throw new Error(message || `Audio save failed (${audioResponse.status})`);
+  }
+
+  const payload = {
+    durationMs,
+    audioMimeType: mimeType,
+    events: recordingEvents,
+  };
+
+  const response = await fetch(buildRecordingUrl(), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || `Recording save failed (${response.status})`);
+  }
+  const data = await response.json().catch(() => null);
+  if (data?.recording) {
+    const recording = {
+      ...data.recording,
+      audioUrl: data.recording.audioUrl ?? buildRecordingUrl("audio"),
+    };
+    setRecordingAvailability(true, recording);
+  } else {
+    setRecordingAvailability(true, { ...payload, audioUrl: buildRecordingUrl("audio") });
+  }
+}
+
+async function startRecording() {
+  if (recordingActive || recordingSaving || recordingPlaybackActive) {
+    return;
+  }
+  closeRecordingConfirmPopovers();
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    setRecordingStatus("Recording is not supported in this browser.", { level: "error", timeout: 3000 });
+    return;
+  }
+
+  const constraints = recordingDeviceId
+    ? { audio: { deviceId: { exact: recordingDeviceId } } }
+    : { audio: true };
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (error) {
+    setRecordingStatus("Microphone access was denied.", { level: "error", timeout: 3000 });
+    return;
+  }
+
+  const mimeType = pickRecordingMimeType();
+  if (!mimeType) {
+    setRecordingStatus("Recording format is not supported.", { level: "error", timeout: 3000 });
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+
+  recordingAudioChunks = [];
+  recordingRecorder = new MediaRecorder(stream, { mimeType });
+  recordingStream = stream;
+  recordingAudioMimeType = recordingRecorder.mimeType || mimeType;
+
+  recordingRecorder.addEventListener("dataavailable", (event) => {
+    if (event.data && event.data.size > 0) {
+      recordingAudioChunks.push(event.data);
+    }
+  });
+
+  recordingRecorder.addEventListener("stop", async () => {
+    const audioBlob = new Blob(recordingAudioChunks, { type: recordingAudioMimeType || mimeType });
+    const durationMs = performance.now() - recordingStartTime;
+    recordingSaving = true;
+    updateRecordingControls();
+    setRecordingStatus("Saving…");
+    try {
+      await saveRecordingSession({ audioBlob, durationMs: Math.max(0, durationMs) });
+      setRecordingStatus("Recording saved.", { timeout: 2500 });
+    } catch (error) {
+      setRecordingStatus(error.message || "Failed to save recording.", { level: "error", timeout: 4000 });
+    } finally {
+      recordingSaving = false;
+      recordingAudioChunks = [];
+      recordingEvents = [];
+      recordingRecorder = null;
+      recordingAudioMimeType = null;
+      stopRecordingStream();
+      updateRecordingControls();
+    }
+  });
+
+  recordingRecorder.start(250);
+  recordingEvents = [];
+  recordingStartTime = performance.now();
+  recordingActive = true;
+  recordSlideState({ slideId: lastSlideId, hash: lastKnownHash });
+  clearDrawings({ send: true });
+  updateRecordingControls();
+  setRecordingStatus("Recording…");
+}
+
+async function stopRecording() {
+  if (!recordingActive) {
+    return;
+  }
+  recordingActive = false;
+  updateRecordingControls();
+  setRecordingStatus("Stopping…");
+  if (recordingRecorder && recordingRecorder.state !== "inactive") {
+    recordingRecorder.stop();
+  } else {
+    stopRecordingStream();
+  }
+}
+
+function toggleRecording() {
+  if (recordingActive) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+async function fetchRecordingData({ force = false } = {}) {
+  if (!force && cachedRecordingData) {
+    return cachedRecordingData;
+  }
+  try {
+    const response = await fetch(buildRecordingUrl());
+    if (!response.ok) {
+      throw new Error();
+    }
+    const payload = await response.json().catch(() => null);
+    if (!payload?.available || !payload.recording) {
+      setRecordingAvailability(false);
+      return null;
+    }
+    setRecordingAvailability(true, payload.recording);
+    return payload.recording;
+  } catch (error) {
+    setRecordingAvailability(false);
+    return null;
+  }
+}
+
+function stopPlayback() {
+  if (!recordingPlaybackActive) {
+    return;
+  }
+  recordingPlaybackActive = false;
+  playbackStopRequested = true;
+  if (playbackFrame) {
+    cancelAnimationFrame(playbackFrame);
+    playbackFrame = null;
+  }
+  if (playbackAudio) {
+    playbackAudio.pause();
+    playbackAudio.currentTime = 0;
+    playbackAudio = null;
+  }
+  playbackEvents = [];
+  playbackIndex = 0;
+  updateRecordingControls();
+}
+
+function dispatchPlaybackEvent(event) {
+  if (event.type === "state") {
+    const nextHash = event.hash || event.slideId || "#";
+    if (nextHash) {
+      sendCommand("goto", nextHash);
+    }
+    return;
+  }
+  if (event.type === "draw") {
+    const { type: _type, time: _time, ...drawPayload } = event;
+    renderDrawMessage(drawPayload);
+    sendDrawMessage(drawPayload, { record: false });
+  }
+}
+
+function playbackTick() {
+  if (!recordingPlaybackActive || !playbackAudio) {
+    return;
+  }
+  const nowMs = playbackAudio.currentTime * 1000;
+  while (playbackIndex < playbackEvents.length && playbackEvents[playbackIndex].time <= nowMs) {
+    const event = playbackEvents[playbackIndex];
+    playbackIndex += 1;
+    dispatchPlaybackEvent(event);
+  }
+  if (playbackAudio.ended || playbackIndex >= playbackEvents.length) {
+    stopPlayback();
+    return;
+  }
+  playbackFrame = requestAnimationFrame(playbackTick);
+}
+
+async function startPlayback() {
+  if (recordingPlaybackActive || recordingActive || recordingSaving) {
+    return;
+  }
+  const recording = await fetchRecordingData({ force: true });
+  if (!recording || !Array.isArray(recording.events)) {
+    return;
+  }
+  const audioUrl = recording.audioUrl;
+  if (!audioUrl) {
+    setRecordingStatus("Recording audio is missing.", { level: "error", timeout: 3000 });
+    return;
+  }
+
+  playbackEvents = recording.events.slice().sort((a, b) => (a.time || 0) - (b.time || 0));
+  playbackIndex = 0;
+  playbackStopRequested = false;
+  recordingPlaybackActive = true;
+  clearDrawings({ send: true });
+  updateRecordingControls();
+
+  playbackAudio = new Audio(audioUrl);
+  playbackAudio.addEventListener("ended", () => {
+    if (!playbackStopRequested) {
+      stopPlayback();
+    }
+  });
+  try {
+    await playbackAudio.play();
+  } catch (error) {
+    stopPlayback();
+    setRecordingStatus("Unable to start playback.", { level: "error", timeout: 3000 });
+    return;
+  }
+
+  playbackFrame = requestAnimationFrame(playbackTick);
+}
+
+function togglePlayback() {
+  if (recordingPlaybackActive) {
+    stopPlayback();
+  } else {
+    startPlayback();
+  }
 }
 
 function normalizeKeyboardConfig(config) {
@@ -788,6 +1221,12 @@ function applyConfig(config) {
   }
   syncToolControls();
 
+  const recordingConfig = config?.recording ?? {};
+  recordingDeviceId = typeof recordingConfig.deviceId === "string" ? recordingConfig.deviceId : null;
+  if (settingsRecordingDevice) {
+    settingsRecordingDevice.value = recordingDeviceId ?? "";
+  }
+
   if (lastSlideId || lastKnownHash !== "#") {
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
@@ -833,6 +1272,9 @@ function syncSettingsForm() {
   if (settingsKeyQuestions) {
     settingsKeyQuestions.value = formatKeyList(shortcuts.questions ?? DEFAULT_SHORTCUTS.questions);
   }
+  if (settingsKeyRecording) {
+    settingsKeyRecording.value = formatKeyList(shortcuts.recording ?? DEFAULT_SHORTCUTS.recording);
+  }
 
   if (settingsNotesSource) {
     const source = draftConfig.notes?.source;
@@ -857,6 +1299,12 @@ function syncSettingsForm() {
     const secondsValue = timerConfig?.durationSeconds ?? timerConfig?.duration;
     const seconds = Number(secondsValue);
     settingsTimerSeconds.value = Number.isFinite(seconds) && seconds > 0 ? String(seconds) : "";
+  }
+
+  const recordingConfig = draftConfig.recording ?? {};
+  if (settingsRecordingDevice) {
+    settingsRecordingDevice.value =
+      typeof recordingConfig.deviceId === "string" ? recordingConfig.deviceId : "";
   }
 }
 
@@ -1017,6 +1465,55 @@ function updateTimerConfig(nextConfig) {
   }
 }
 
+function updateRecordingConfig(nextConfig, deviceId) {
+  const recording =
+    nextConfig.recording && typeof nextConfig.recording === "object"
+      ? { ...nextConfig.recording }
+      : {};
+  if (deviceId) {
+    recording.deviceId = deviceId;
+  } else {
+    delete recording.deviceId;
+  }
+  if (Object.keys(recording).length > 0) {
+    nextConfig.recording = recording;
+  } else {
+    delete nextConfig.recording;
+  }
+}
+
+async function refreshRecordingDevices({ requestPermission = false } = {}) {
+  if (!settingsRecordingDevice || !navigator.mediaDevices?.enumerateDevices) {
+    return;
+  }
+  if (requestPermission) {
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      // ignore permission errors
+    }
+  }
+  let devices = [];
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices();
+  } catch (error) {
+    return;
+  }
+  const audioInputs = devices.filter((device) => device.kind === "audioinput");
+  settingsRecordingDevice.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "System default";
+  settingsRecordingDevice.appendChild(defaultOption);
+  audioInputs.forEach((device, index) => {
+    const option = document.createElement("option");
+    option.value = device.deviceId;
+    option.textContent = device.label || `Audio input ${index + 1}`;
+    settingsRecordingDevice.appendChild(option);
+  });
+  settingsRecordingDevice.value = recordingDeviceId ?? "";
+}
+
 function handleConfigUpdate(config, { force = false } = {}) {
   const sanitized = sanitizeConfig(config);
   const shouldSyncDraft = force || !settingsDirty || configsEqual(draftConfig, sanitized);
@@ -1084,6 +1581,7 @@ function openSettings() {
   }
   clearSettingsPanelHeight();
   syncSettingsForm();
+  refreshRecordingDevices();
   syncSettingsJson({ force: jsonIsValid });
   setSettingsView(settingsView || "ui");
   updateSettingsDirtyState();
@@ -1925,7 +2423,7 @@ function clearDrawings({ send = false } = {}) {
   drawingActive = false;
   laserActive = false;
   if (send) {
-    sendMessage({ type: "draw", action: "clear" });
+    sendDrawMessage({ action: "clear" });
   }
 }
 
@@ -2201,11 +2699,17 @@ function closeResetPopover() {
   setResetPopoverOpen(false);
 }
 
-function sendDrawMessage(payload) {
+function sendDrawMessage(payload, { record = true } = {}) {
   sendMessage({ type: "draw", ...payload });
+  if (record) {
+    recordEvent({ type: "draw", ...payload });
+  }
 }
 
 function handleDrawPointerDown(event) {
+  if (recordingPlaybackActive) {
+    return;
+  }
   if (activeTool === "draw") {
     if (event.button !== 0) {
       return;
@@ -2236,6 +2740,9 @@ function handleDrawPointerDown(event) {
 }
 
 function handleLaserMove(event, forceSend = false) {
+  if (recordingPlaybackActive) {
+    return;
+  }
   const point = getCanvasPoint(event);
   if (!point) {
     return;
@@ -2257,6 +2764,9 @@ function handleLaserMove(event, forceSend = false) {
 }
 
 function handleDrawPointerMove(event) {
+  if (recordingPlaybackActive) {
+    return;
+  }
   if (activeTool === "draw" && drawingActive) {
     const point = getCanvasPoint(event);
     if (!point) {
@@ -2279,6 +2789,9 @@ function handleDrawPointerMove(event) {
 }
 
 function handleDrawPointerUp(event) {
+  if (recordingPlaybackActive) {
+    return;
+  }
   if (activeTool === "draw" && drawingActive) {
     const point = getCanvasPoint(event);
     drawingActive = false;
@@ -2472,6 +2985,7 @@ function updateSlideState({
   if (stateKey !== lastSlideId || nextHash !== previousHash) {
     const previousSlideId = lastSlideId;
     lastSlideId = stateKey;
+    recordSlideState({ slideId, hash: nextHash });
     clearDrawings({ send: true });
     if (!timerStarted) {
       if (timerMode === "countdown") {
@@ -2600,9 +3114,18 @@ function handleKeyboard(event) {
   }
 
   const shortcutAction = resolveShortcutAction(event);
+  if (shortcutAction === "recording") {
+    event.preventDefault();
+    toggleRecording();
+    return;
+  }
   if (shortcutAction === "questions") {
     event.preventDefault();
     toggleQuestionsOverlay();
+    return;
+  }
+
+  if (recordingPlaybackActive) {
     return;
   }
 
@@ -2726,6 +3249,9 @@ async function handleExportPdf() {
 
 actionButtons.forEach((button) => {
   button.addEventListener("click", () => {
+    if (recordingPlaybackActive) {
+      return;
+    }
     const action = button.dataset.action;
     if (action) {
       sendCommand(action);
@@ -2735,6 +3261,9 @@ actionButtons.forEach((button) => {
 
 toolButtons.forEach((button) => {
   button.addEventListener("click", () => {
+    if (recordingPlaybackActive) {
+      return;
+    }
     const tool = button.dataset.tool;
     if (tool) {
       setActiveTool(tool);
@@ -2744,6 +3273,9 @@ toolButtons.forEach((button) => {
 
 colorButtons.forEach((button) => {
   button.addEventListener("click", () => {
+    if (recordingPlaybackActive) {
+      return;
+    }
     const color = button.dataset.color;
     if (!color) {
       return;
@@ -2758,6 +3290,9 @@ colorButtons.forEach((button) => {
 
 if (colorPickerInput) {
   colorPickerInput.addEventListener("input", () => {
+    if (recordingPlaybackActive) {
+      return;
+    }
     const tool = activeTool === "none" ? "draw" : activeTool;
     setToolColor(tool, colorPickerInput.value, { fromPicker: true });
     if (activeTool === "none") {
@@ -2768,6 +3303,9 @@ if (colorPickerInput) {
 
 if (sizeSlider) {
   sizeSlider.addEventListener("input", () => {
+    if (recordingPlaybackActive) {
+      return;
+    }
     const size = Number(sizeSlider.value);
     const tool = activeTool === "laser" ? "laser" : "draw";
     setToolSize(tool, size);
@@ -2779,6 +3317,24 @@ if (sizeSlider) {
 
 questionsToggleButton?.addEventListener("click", () => {
   toggleQuestionsOverlay();
+});
+
+recordingToggleButton?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  requestRecordingStart("main");
+});
+
+recordingConfirmButton?.addEventListener("click", () => {
+  closeRecordingConfirmPopovers();
+  startRecording();
+});
+
+recordingCancelButton?.addEventListener("click", () => {
+  closeRecordingConfirmPopovers();
+});
+
+recordingPlayButton?.addEventListener("click", () => {
+  togglePlayback();
 });
 
 exportButton?.addEventListener("click", () => {
@@ -2870,6 +3426,7 @@ setupKeyAutocomplete(settingsKeyLast);
 setupKeyAutocomplete(settingsKeyFullscreen);
 setupKeyAutocomplete(settingsKeyPresenter);
 setupKeyAutocomplete(settingsKeyQuestions);
+setupKeyAutocomplete(settingsKeyRecording);
 hotkeyCaptureButtons.forEach((button) => {
   setupHotkeyCapture(button);
 });
@@ -2910,6 +3467,12 @@ settingsKeyQuestions?.addEventListener("change", () => {
   });
 });
 
+settingsKeyRecording?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateShortcutConfig(nextConfig, "recording", settingsKeyRecording.value);
+  });
+});
+
 settingsNotesSource?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
     updateNotesConfig(nextConfig, settingsNotesSource.value);
@@ -2938,6 +3501,26 @@ settingsTimerSeconds?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
     updateTimerConfig(nextConfig);
   });
+});
+
+settingsRecordingDevice?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateRecordingConfig(nextConfig, settingsRecordingDevice.value);
+  });
+});
+
+settingsRecordingToggle?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  requestRecordingStart("settings");
+});
+
+settingsRecordingConfirmButton?.addEventListener("click", () => {
+  closeRecordingConfirmPopovers();
+  startRecording();
+});
+
+settingsRecordingCancelButton?.addEventListener("click", () => {
+  closeRecordingConfirmPopovers();
 });
 
 settingsJson?.addEventListener("focus", () => {
@@ -3014,12 +3597,29 @@ document.addEventListener("click", (event) => {
       closeResetPopover();
     }
   }
+  if (recordingConfirmPopover?.dataset.open === "true") {
+    if (
+      !recordingConfirmPopover.contains(event.target) &&
+      !recordingToggleButton?.contains(event.target)
+    ) {
+      closeRecordingConfirmPopovers();
+    }
+  }
+  if (settingsRecordingConfirmPopover?.dataset.open === "true") {
+    if (
+      !settingsRecordingConfirmPopover.contains(event.target) &&
+      !settingsRecordingToggle?.contains(event.target)
+    ) {
+      closeRecordingConfirmPopovers();
+    }
+  }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeClearPopover();
     closeResetPopover();
+    closeRecordingConfirmPopovers();
     closeSettings();
     closeQuestionsOverlay();
     pendingDeleteQuestionId = null;
@@ -3076,6 +3676,14 @@ setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 attachDrawingHandlers();
 syncToolControls();
 setActiveTool("none");
+updateRecordingControls();
+fetchRecordingData({ force: true });
+refreshRecordingDevices();
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener("devicechange", () => {
+    refreshRecordingDevices();
+  });
+}
 fetchQuestions({ silent: true }).finally(() => {
   startQuestionsPolling();
 });
@@ -3084,6 +3692,11 @@ connect();
 window.addEventListener("beforeunload", () => {
   stopTimerInterval();
   stopQuestionsPolling();
+  if (recordingRecorder && recordingRecorder.state !== "inactive") {
+    recordingRecorder.stop();
+  }
+  stopPlayback();
+  stopRecordingStream();
   if (ws) {
     ws.close();
   }

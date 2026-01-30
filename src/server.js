@@ -17,6 +17,8 @@ const CLIENT_DIR = path.resolve(
 
 const QUESTIONS_FILE_NAME = "questions.json";
 const QUESTIONS_LOCK_NAME = ".questions.lock";
+const RECORDING_JSON_NAME = "recording.json";
+const RECORDING_AUDIO_NAME = "recording.webm";
 const QUESTION_TEXT_LIMIT = 500;
 const QUESTION_COOKIE_NAME = "miniPresenterQuestionToken";
 const PRESENTER_AUTH_MAX_ATTEMPTS = 5;
@@ -276,6 +278,14 @@ async function readJsonBody(req) {
   return JSON.parse(raw);
 }
 
+async function readBinaryBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function loadPresenterConfig({ rootDir, rootUrl }) {
   if (rootUrl) {
     const configUrl = new URL("presenter.json", rootUrl);
@@ -367,6 +377,29 @@ function getQuestionsPaths(rootDir) {
     filePath: path.join(rootDir, QUESTIONS_FILE_NAME),
     lockPath: path.join(rootDir, QUESTIONS_LOCK_NAME),
   };
+}
+
+function getRecordingPaths(rootDir) {
+  return {
+    jsonPath: path.join(rootDir, RECORDING_JSON_NAME),
+    audioPath: path.join(rootDir, RECORDING_AUDIO_NAME),
+  };
+}
+
+async function readRecordingFile(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function normalizeQuestionsData(payload) {
@@ -563,8 +596,11 @@ export async function startServer({
       (pathname === "/_/api/questions/vote" && method === "POST") ||
       (pathname === "/_/api/questions/delete" && method === "POST") ||
       (pathname === "/_/api/questions/answer" && method === "POST");
+    const isRecordingUpdate =
+      (pathname === "/_/api/recording" && (method === "PUT" || method === "POST")) ||
+      (pathname === "/_/api/recording/audio" && (method === "PUT" || method === "POST"));
 
-    if (method !== "GET" && method !== "HEAD" && !isConfigUpdate && !isQuestionsUpdate) {
+    if (method !== "GET" && method !== "HEAD" && !isConfigUpdate && !isQuestionsUpdate && !isRecordingUpdate) {
       res.statusCode = 405;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end("Method not allowed\n");
@@ -773,6 +809,202 @@ export async function startServer({
 
         hub.updateConfig(mergedConfig);
         sendJson(res, { saved: true, config: mergedConfig }, req.method);
+        return;
+      }
+
+      if (pathname === "/_/api/recording") {
+        if (req.method === "GET" || req.method === "HEAD") {
+          if (!rootDir || normalizedRootUrl) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Recording is unavailable for remote decks\n");
+            return;
+          }
+          const { jsonPath, audioPath } = getRecordingPaths(rootDir);
+          const recording = await readRecordingFile(jsonPath);
+          if (!recording) {
+            sendJson(res, { available: false }, req.method);
+            return;
+          }
+          let audioAvailable = false;
+          try {
+            const stats = await fs.stat(audioPath);
+            audioAvailable = stats.isFile();
+          } catch (error) {
+            if (error.code !== "ENOENT") {
+              throw error;
+            }
+          }
+          const responsePayload = {
+            available: true,
+            recording: {
+              ...recording,
+              audioUrl: audioAvailable ? "/_/api/recording/audio" : null,
+            },
+          };
+          sendJson(res, responsePayload, req.method);
+          return;
+        }
+
+        if (!isLocalRequest(req)) {
+          if (presenterKey) {
+            const providedKey = requestUrl.searchParams.get("key");
+            if (providedKey !== presenterKey) {
+              res.statusCode = 401;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Unauthorized\n");
+              return;
+            }
+          } else {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Forbidden\n");
+            return;
+          }
+        }
+
+        if (!rootDir || normalizedRootUrl) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Recording is unavailable for remote decks\n");
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid JSON\n");
+          return;
+        }
+
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Recording payload must be a JSON object\n");
+          return;
+        }
+
+        const events = Array.isArray(payload.events)
+          ? payload.events.filter((event) => event && typeof event === "object")
+          : null;
+        if (!events) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Recording events are required\n");
+          return;
+        }
+
+        const durationMs = Number(payload.durationMs);
+        const recording = {
+          version: 1,
+          createdAt: new Date().toISOString(),
+          durationMs: Number.isFinite(durationMs) && durationMs >= 0 ? Math.round(durationMs) : 0,
+          audioMimeType: typeof payload.audioMimeType === "string" ? payload.audioMimeType : "audio/webm",
+          events,
+        };
+
+        const { jsonPath } = getRecordingPaths(rootDir);
+        try {
+          await fs.writeFile(jsonPath, `${JSON.stringify(recording, null, 2)}\n`);
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to save recording\n");
+          return;
+        }
+
+        sendJson(res, { saved: true, recording }, req.method);
+        return;
+      }
+
+      if (pathname === "/_/api/recording/audio") {
+        if (req.method === "GET" || req.method === "HEAD") {
+          if (!rootDir || normalizedRootUrl) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Recording is unavailable for remote decks\n");
+            return;
+          }
+          const { audioPath, jsonPath } = getRecordingPaths(rootDir);
+          let data;
+          try {
+            data = await fs.readFile(audioPath);
+          } catch (error) {
+            if (error.code === "ENOENT") {
+              res.statusCode = 404;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Recording audio not found\n");
+              return;
+            }
+            throw error;
+          }
+          const recording = await readRecordingFile(jsonPath);
+          const contentType = recording?.audioMimeType || "audio/webm";
+          res.statusCode = 200;
+          res.setHeader("Content-Type", contentType);
+          if (req.method === "HEAD") {
+            res.end();
+            return;
+          }
+          res.end(data);
+          return;
+        }
+
+        if (!isLocalRequest(req)) {
+          if (presenterKey) {
+            const providedKey = requestUrl.searchParams.get("key");
+            if (providedKey !== presenterKey) {
+              res.statusCode = 401;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Unauthorized\n");
+              return;
+            }
+          } else {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Forbidden\n");
+            return;
+          }
+        }
+
+        if (!rootDir || normalizedRootUrl) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Recording is unavailable for remote decks\n");
+          return;
+        }
+
+        let data;
+        try {
+          data = await readBinaryBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid recording payload\n");
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Recording audio is required\n");
+          return;
+        }
+
+        const { audioPath } = getRecordingPaths(rootDir);
+        try {
+          await fs.writeFile(audioPath, data);
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to save recording audio\n");
+          return;
+        }
+
+        sendJson(res, { saved: true }, req.method);
         return;
       }
 

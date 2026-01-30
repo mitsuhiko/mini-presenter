@@ -411,14 +411,16 @@ body {
 }
 
 .presenter__clear,
-.presenter__reset {
+.presenter__reset,
+.presenter__recording {
   position: relative;
   display: flex;
   align-items: center;
 }
 
 .presenter__clear-popover,
-.presenter__reset-popover {
+.presenter__reset-popover,
+.presenter__record-popover {
   position: absolute;
   right: 0;
   top: calc(100% + 0.35rem);
@@ -436,21 +438,24 @@ body {
 }
 
 .presenter__clear-popover[data-open="true"],
-.presenter__reset-popover[data-open="true"] {
+.presenter__reset-popover[data-open="true"],
+.presenter__record-popover[data-open="true"] {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
 }
 
 .presenter__clear-title,
-.presenter__reset-title {
+.presenter__reset-title,
+.presenter__record-title {
   font-size: 0.7rem;
   color: #f1ede7;
   margin-bottom: 0.4rem;
 }
 
 .presenter__clear-actions,
-.presenter__reset-actions {
+.presenter__reset-actions,
+.presenter__record-actions {
   display: flex;
   gap: 0.35rem;
   justify-content: flex-end;
@@ -536,6 +541,28 @@ body {
 .presenter__button--laser.presenter__button--active {
   transform: translateY(2px);
   box-shadow: 0 2px 0 #7b2e2e, 0 5px 8px rgba(0, 0, 0, 0.2);
+}
+
+.presenter__button--recording {
+  background: #d25555;
+  border-color: #8a2a2a;
+  color: #fff6f6;
+  box-shadow: 0 3px 0 #6f2323, 0 6px 10px rgba(0, 0, 0, 0.2);
+}
+
+.presenter__button--recording:hover {
+  background: #db6262;
+  box-shadow: 0 4px 0 #6f2323, 0 8px 12px rgba(0, 0, 0, 0.22);
+}
+
+.presenter__button--recording:active,
+.presenter__button--recording[data-active="true"] {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #6f2323, 0 5px 8px rgba(0, 0, 0, 0.2);
+}
+
+#recording-play[data-visible="false"] {
+  display: none;
 }
 
 .presenter__slide-count {
@@ -918,6 +945,22 @@ body {
   gap: 0.5rem;
   font-size: 0.9rem;
   color: var(--presenter-text);
+}
+
+.presenter__settings-recording-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.presenter__settings-recording-status {
+  font-size: 0.75rem;
+  color: var(--presenter-text-subtle);
+}
+
+.presenter__settings-recording-status[data-level="error"] {
+  color: #d96a6a;
 }
 
 .presenter__settings-hint {
