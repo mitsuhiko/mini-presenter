@@ -98,6 +98,29 @@ const DEFAULT_KEYBOARD = {
   last: ["End"],
 };
 
+const KEY_AUTOCOMPLETE_OPTIONS = [
+  "ArrowRight",
+  "ArrowLeft",
+  "ArrowUp",
+  "ArrowDown",
+  "PageDown",
+  "PageUp",
+  "Home",
+  "End",
+  "Space",
+  "Spacebar",
+  "Enter",
+  "Escape",
+  "Tab",
+  "Backspace",
+  "Delete",
+  "Insert",
+  "Shift",
+  "Control",
+  "Alt",
+  "Meta",
+];
+
 function isLocalHostname(hostname) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
@@ -186,6 +209,79 @@ function formatKeyList(keys) {
   return keys
     .map((item) => (item === " " ? "Space" : item))
     .join(", ");
+}
+
+function applyKeySuggestion(value, suggestion) {
+  const parts = value.split(",");
+  const tokens = parts.slice(0, -1).map((part) => part.trim()).filter(Boolean);
+  tokens.push(suggestion);
+  return tokens.join(", ");
+}
+
+function setupKeyAutocomplete(input) {
+  if (!input || !input.parentElement) {
+    return;
+  }
+
+  const container = document.createElement("div");
+  container.className = "presenter__key-suggestions";
+  container.dataset.open = "false";
+  container.setAttribute("role", "listbox");
+  input.parentElement.appendChild(container);
+
+  const hide = () => {
+    container.dataset.open = "false";
+    container.innerHTML = "";
+  };
+
+  const render = (matches) => {
+    container.innerHTML = "";
+    matches.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "presenter__key-suggestion";
+      button.textContent = option;
+      button.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        input.value = applyKeySuggestion(input.value, option);
+        hide();
+        input.focus();
+      });
+      container.appendChild(button);
+    });
+    container.dataset.open = matches.length > 0 ? "true" : "false";
+  };
+
+  const update = () => {
+    const rawValue = input.value;
+    const parts = rawValue.split(",");
+    const lastPart = parts[parts.length - 1]?.trim() ?? "";
+    const query = lastPart.toLowerCase();
+    const matches = KEY_AUTOCOMPLETE_OPTIONS.filter((option) =>
+      query ? option.toLowerCase().startsWith(query) : true
+    );
+    if (matches.length === 0) {
+      hide();
+      return;
+    }
+    render(matches);
+  };
+
+  let blurTimer = null;
+
+  input.addEventListener("input", update);
+  input.addEventListener("focus", update);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hide();
+    }
+  });
+  input.addEventListener("blur", () => {
+    if (blurTimer) {
+      clearTimeout(blurTimer);
+    }
+    blurTimer = setTimeout(hide, 120);
+  });
 }
 
 let ws = null;
@@ -1982,11 +2078,17 @@ settingsTitleInput?.addEventListener("input", () => {
   });
 });
 
+setupKeyAutocomplete(settingsKeyNext);
+
 settingsKeyNext?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
     updateKeyboardConfig(nextConfig, "next", settingsKeyNext.value);
   });
 });
+
+setupKeyAutocomplete(settingsKeyPrev);
+setupKeyAutocomplete(settingsKeyFirst);
+setupKeyAutocomplete(settingsKeyLast);
 
 settingsKeyPrev?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
