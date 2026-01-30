@@ -44,6 +44,7 @@ const settingsKeyFirst = document.querySelector("#settings-key-first");
 const settingsKeyLast = document.querySelector("#settings-key-last");
 const settingsKeyFullscreen = document.querySelector("#settings-key-fullscreen");
 const settingsKeyPresenter = document.querySelector("#settings-key-presenter");
+const settingsKeyQuestions = document.querySelector("#settings-key-questions");
 const hotkeyCaptureButtons = document.querySelectorAll("[data-hotkey-capture]");
 const settingsNotesSource = document.querySelector("#settings-notes-source");
 const settingsPreviewRelative = document.querySelector("#settings-preview-relative");
@@ -55,6 +56,17 @@ const settingsJsonStatus = document.querySelector("#settings-json-status");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
+const questionsToggleButton = document.querySelector("#questions-toggle");
+const questionsCountBadge = document.querySelector("#questions-count");
+const questionsOverlay = document.querySelector("#questions-overlay");
+const questionsCloseButton = document.querySelector("#questions-close");
+const questionsRefreshButton = document.querySelector("#questions-refresh");
+const questionsQrToggle = document.querySelector("#questions-qr-toggle");
+const questionsQr = document.querySelector("#questions-qr");
+const questionsQrImage = document.querySelector("#questions-qr-image");
+const questionsLink = document.querySelector("#questions-link");
+const questionsList = document.querySelector("#questions-list");
+const questionsStatus = document.querySelector("#questions-status");
 
 const RECONNECT_DELAY_MS = 1000;
 const TIMER_INTERVAL_MS = 250;
@@ -105,7 +117,10 @@ const DEFAULT_KEYBOARD = {
 const DEFAULT_SHORTCUTS = {
   fullscreen: ["f"],
   presenter: ["p"],
+  questions: ["q"],
 };
+
+const QUESTIONS_POLL_INTERVAL_MS = 6000;
 
 const KEY_MODIFIER_OPTIONS = ["Meta", "Control", "Alt", "Shift"];
 const KEY_AUTOCOMPLETE_OPTIONS = [
@@ -129,6 +144,122 @@ const KEY_AUTOCOMPLETE_OPTIONS = [
   ...Array.from({ length: 26 }, (_, index) => String.fromCharCode(65 + index)),
   ...Array.from({ length: 10 }, (_, index) => String(index)),
 ];
+
+function normalizeShortcutList(value, fallback) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  const normalized = value
+    .filter((entry) => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function applyShortcutConfig(config) {
+  const shortcuts = config?.shortcuts ?? {};
+  shortcutConfig = {
+    fullscreen: normalizeShortcutList(shortcuts.fullscreen, DEFAULT_SHORTCUTS.fullscreen),
+    presenter: normalizeShortcutList(shortcuts.presenter, DEFAULT_SHORTCUTS.presenter),
+    questions: normalizeShortcutList(shortcuts.questions, DEFAULT_SHORTCUTS.questions),
+  };
+}
+
+function normalizeKeyToken(token) {
+  const lower = token.toLowerCase();
+  if (lower === "space" || lower === "spacebar") {
+    return " ";
+  }
+  if (lower === "cmd" || lower === "command") {
+    return "meta";
+  }
+  if (lower === "ctrl") {
+    return "control";
+  }
+  if (lower === "option") {
+    return "alt";
+  }
+  return token;
+}
+
+function parseShortcut(shortcut) {
+  const tokens = shortcut
+    .split("+")
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map(normalizeKeyToken);
+
+  const required = { meta: false, control: false, alt: false, shift: false };
+  let keyToken = null;
+
+  tokens.forEach((token) => {
+    const lower = token.toLowerCase();
+    if (lower === "meta") {
+      required.meta = true;
+      return;
+    }
+    if (lower === "control") {
+      required.control = true;
+      return;
+    }
+    if (lower === "alt") {
+      required.alt = true;
+      return;
+    }
+    if (lower === "shift") {
+      required.shift = true;
+      return;
+    }
+    keyToken = token;
+  });
+
+  return { keyToken, required };
+}
+
+function matchesShortcut(event, shortcut) {
+  if (!shortcut) {
+    return false;
+  }
+  const { keyToken, required } = parseShortcut(shortcut);
+  if (!keyToken) {
+    return false;
+  }
+
+  if (event.metaKey !== required.meta) {
+    return false;
+  }
+  if (event.ctrlKey !== required.control) {
+    return false;
+  }
+  if (event.altKey !== required.alt) {
+    return false;
+  }
+  if (event.shiftKey !== required.shift) {
+    return false;
+  }
+
+  const normalizedToken = normalizeKeyToken(keyToken);
+  const key = event.key;
+
+  if (normalizedToken === " ") {
+    return key === " " || key === "Spacebar";
+  }
+
+  if (normalizedToken.length === 1) {
+    return key.toLowerCase() === normalizedToken.toLowerCase();
+  }
+
+  return key === normalizedToken;
+}
+
+function resolveShortcutAction(event) {
+  for (const shortcut of shortcutConfig.questions ?? []) {
+    if (matchesShortcut(event, shortcut)) {
+      return "questions";
+    }
+  }
+  return null;
+}
 
 function isLocalHostname(hostname) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
@@ -512,6 +643,9 @@ let settingsView = "ui";
 let jsonIsValid = true;
 let jsonEditing = false;
 let settingsPanelHeight = null;
+let shortcutConfig = { ...DEFAULT_SHORTCUTS };
+let questionsPollingTimer = null;
+let questionsAvailable = true;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -605,6 +739,8 @@ function applyConfig(config) {
   const keyboardConfig = normalizeKeyboardConfig(config?.keyboard);
   keyboardMap = buildKeyboardMap(keyboardConfig);
 
+  applyShortcutConfig(config);
+
   const source = config?.notes?.source;
   if (source === "api" || source === "files" || source === "none") {
     notesSource = source;
@@ -692,6 +828,9 @@ function syncSettingsForm() {
   }
   if (settingsKeyPresenter) {
     settingsKeyPresenter.value = formatKeyList(shortcuts.presenter ?? DEFAULT_SHORTCUTS.presenter);
+  }
+  if (settingsKeyQuestions) {
+    settingsKeyQuestions.value = formatKeyList(shortcuts.questions ?? DEFAULT_SHORTCUTS.questions);
   }
 
   if (settingsNotesSource) {
@@ -961,6 +1100,204 @@ function closeSettings() {
   jsonEditing = false;
   stopHotkeyCapture();
   clearSettingsPanelHeight();
+}
+
+function buildQuestionsUrl() {
+  return new URL("/_/questions", window.location.origin).toString();
+}
+
+function buildQuestionsApiUrl() {
+  return new URL("/_/api/questions", window.location.origin).toString();
+}
+
+function buildQuestionsQrUrl() {
+  return new URL("/_/api/questions/qr", window.location.origin).toString();
+}
+
+function setQuestionsAvailability(available) {
+  questionsAvailable = available;
+  if (questionsToggleButton) {
+    questionsToggleButton.style.display = available ? "" : "none";
+  }
+  if (!available) {
+    closeQuestionsOverlay();
+    stopQuestionsPolling();
+  }
+}
+
+function setQuestionsOverlayOpen(open) {
+  if (!questionsOverlay) {
+    return;
+  }
+  questionsOverlay.dataset.open = open ? "true" : "false";
+  questionsOverlay.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function setQuestionsQrOpen(open) {
+  if (questionsQr) {
+    questionsQr.dataset.open = open ? "true" : "false";
+    questionsQr.setAttribute("aria-hidden", open ? "false" : "true");
+  }
+  if (questionsQrToggle) {
+    questionsQrToggle.setAttribute("aria-pressed", open ? "true" : "false");
+    questionsQrToggle.textContent = open ? "Hide QR" : "Show QR";
+  }
+}
+
+function updateQuestionsQr() {
+  const url = buildQuestionsUrl();
+  if (questionsQrImage) {
+    questionsQrImage.src = buildQuestionsQrUrl();
+  }
+  if (questionsLink) {
+    questionsLink.textContent = url;
+  }
+}
+
+function formatQuestionTimestamp(isoString) {
+  if (!isoString) {
+    return "";
+  }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function updateQuestionsBadge(count) {
+  if (!questionsCountBadge) {
+    return;
+  }
+  if (count > 0) {
+    questionsCountBadge.textContent = String(count);
+    questionsCountBadge.dataset.visible = "true";
+  } else {
+    questionsCountBadge.textContent = "";
+    questionsCountBadge.dataset.visible = "false";
+  }
+}
+
+function renderQuestionsList(questions) {
+  if (!questionsList) {
+    return;
+  }
+  questionsList.innerHTML = "";
+  if (!Array.isArray(questions) || questions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "presenter__questions-empty";
+    empty.textContent = "No questions yet.";
+    questionsList.appendChild(empty);
+    return;
+  }
+
+  const sorted = [...questions].sort((a, b) => {
+    const voteDiff = (b.votes ?? 0) - (a.votes ?? 0);
+    if (voteDiff !== 0) {
+      return voteDiff;
+    }
+    return String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? ""));
+  });
+
+  sorted.forEach((question) => {
+    const card = document.createElement("div");
+    card.className = "presenter__question";
+
+    const votes = document.createElement("div");
+    votes.className = "presenter__question-votes";
+    votes.textContent = `${question.votes ?? 0}▲`;
+
+    const content = document.createElement("div");
+    const text = document.createElement("div");
+    text.className = "presenter__question-text";
+    text.textContent = question.text ?? "";
+    content.appendChild(text);
+
+    const timestamp = formatQuestionTimestamp(question.createdAt);
+    if (timestamp) {
+      const meta = document.createElement("div");
+      meta.className = "presenter__question-meta";
+      meta.textContent = `Asked at ${timestamp}`;
+      content.appendChild(meta);
+    }
+
+    card.appendChild(votes);
+    card.appendChild(content);
+    questionsList.appendChild(card);
+  });
+}
+
+async function fetchQuestions({ silent = false } = {}) {
+  try {
+    const response = await fetch(buildQuestionsApiUrl());
+    if (response.status === 404 || response.status === 501) {
+      setQuestionsAvailability(false);
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to load questions (${response.status})`);
+    }
+    const data = await response.json();
+    const questions = Array.isArray(data?.questions) ? data.questions : [];
+    renderQuestionsList(questions);
+    updateQuestionsBadge(questions.length);
+    if (questionsStatus && !silent) {
+      const now = new Date();
+      questionsStatus.textContent = `Updated ${now.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`;
+    }
+  } catch (error) {
+    if (questionsStatus && !silent) {
+      questionsStatus.textContent = error.message || "Unable to load questions.";
+    }
+  }
+}
+
+function startQuestionsPolling() {
+  if (questionsPollingTimer || !questionsAvailable) {
+    return;
+  }
+  questionsPollingTimer = setInterval(() => {
+    fetchQuestions({ silent: true });
+  }, QUESTIONS_POLL_INTERVAL_MS);
+}
+
+function stopQuestionsPolling() {
+  if (questionsPollingTimer) {
+    clearInterval(questionsPollingTimer);
+    questionsPollingTimer = null;
+  }
+}
+
+function openQuestionsOverlay() {
+  if (!questionsOverlay || !questionsAvailable) {
+    return;
+  }
+  setQuestionsOverlayOpen(true);
+  updateQuestionsQr();
+  setQuestionsQrOpen(questionsQr?.dataset.open === "true");
+  fetchQuestions();
+}
+
+function closeQuestionsOverlay() {
+  if (!questionsOverlay) {
+    return;
+  }
+  setQuestionsOverlayOpen(false);
+}
+
+function toggleQuestionsOverlay() {
+  if (!questionsOverlay || !questionsAvailable) {
+    return;
+  }
+  const isOpen = questionsOverlay.dataset.open === "true";
+  if (isOpen) {
+    closeQuestionsOverlay();
+  } else {
+    openQuestionsOverlay();
+  }
 }
 
 keyboardMap = buildKeyboardMap(DEFAULT_KEYBOARD);
@@ -2169,14 +2506,26 @@ function connect() {
 }
 
 function handleKeyboard(event) {
-  if (event.metaKey || event.ctrlKey || event.altKey) {
-    return;
-  }
   if (settingsOverlay?.dataset.open === "true") {
     return;
   }
   const target = event.target;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+    return;
+  }
+
+  const shortcutAction = resolveShortcutAction(event);
+  if (shortcutAction === "questions") {
+    event.preventDefault();
+    toggleQuestionsOverlay();
+    return;
+  }
+
+  if (questionsOverlay?.dataset.open === "true") {
+    return;
+  }
+
+  if (event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
 
@@ -2343,6 +2692,10 @@ if (sizeSlider) {
   });
 }
 
+questionsToggleButton?.addEventListener("click", () => {
+  toggleQuestionsOverlay();
+});
+
 exportButton?.addEventListener("click", () => {
   handleExportPdf();
 });
@@ -2363,6 +2716,25 @@ settingsOverlay?.addEventListener("click", (event) => {
   if (event.target === settingsOverlay) {
     closeSettings();
   }
+});
+
+questionsOverlay?.addEventListener("click", (event) => {
+  if (event.target === questionsOverlay) {
+    closeQuestionsOverlay();
+  }
+});
+
+questionsCloseButton?.addEventListener("click", () => {
+  closeQuestionsOverlay();
+});
+
+questionsRefreshButton?.addEventListener("click", () => {
+  fetchQuestions();
+});
+
+questionsQrToggle?.addEventListener("click", () => {
+  const isOpen = questionsQr?.dataset.open === "true";
+  setQuestionsQrOpen(!isOpen);
 });
 
 settingsJsonToggle?.addEventListener("click", () => {
@@ -2394,6 +2766,7 @@ setupKeyAutocomplete(settingsKeyFirst);
 setupKeyAutocomplete(settingsKeyLast);
 setupKeyAutocomplete(settingsKeyFullscreen);
 setupKeyAutocomplete(settingsKeyPresenter);
+setupKeyAutocomplete(settingsKeyQuestions);
 hotkeyCaptureButtons.forEach((button) => {
   setupHotkeyCapture(button);
 });
@@ -2425,6 +2798,12 @@ settingsKeyFullscreen?.addEventListener("change", () => {
 settingsKeyPresenter?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
     updateShortcutConfig(nextConfig, "presenter", settingsKeyPresenter.value);
+  });
+});
+
+settingsKeyQuestions?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateShortcutConfig(nextConfig, "questions", settingsKeyQuestions.value);
   });
 });
 
@@ -2539,6 +2918,7 @@ document.addEventListener("keydown", (event) => {
     closeClearPopover();
     closeResetPopover();
     closeSettings();
+    closeQuestionsOverlay();
   }
 });
 
@@ -2591,10 +2971,15 @@ setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 attachDrawingHandlers();
 syncToolControls();
 setActiveTool("none");
+setQuestionsQrOpen(false);
+fetchQuestions({ silent: true }).finally(() => {
+  startQuestionsPolling();
+});
 connect();
 
 window.addEventListener("beforeunload", () => {
   stopTimerInterval();
+  stopQuestionsPolling();
   if (ws) {
     ws.close();
   }

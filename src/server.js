@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { injectPresenterScript } from "./injector.js";
 import { watchDirectory } from "./watcher.js";
 import { createWebSocketHub } from "./websocket.js";
@@ -13,6 +14,10 @@ const CLIENT_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../client"
 );
+
+const QUESTIONS_FILE_NAME = "questions.json";
+const QUESTIONS_LOCK_NAME = ".questions.lock";
+const QUESTION_TEXT_LIMIT = 500;
 
 function normalizeBaseUrl(url) {
   const base = new URL(url);
@@ -76,6 +81,12 @@ async function sendNotFound(res) {
   res.statusCode = 404;
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.end("Not found\n");
+}
+
+async function sendQuestionsUnsupported(res) {
+  res.statusCode = 501;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.end("Questions are not available for remote decks\n");
 }
 
 function buildRemoteUrl(baseUrl, pathname, search) {
@@ -255,6 +266,153 @@ async function loadNotesForHash({ rootDir, rootUrl }, hash) {
   return null;
 }
 
+function getQuestionsPaths(rootDir) {
+  return {
+    filePath: path.join(rootDir, QUESTIONS_FILE_NAME),
+    lockPath: path.join(rootDir, QUESTIONS_LOCK_NAME),
+  };
+}
+
+function normalizeQuestionsData(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { version: 1, questions: [] };
+  }
+  const questions = Array.isArray(payload.questions) ? payload.questions : [];
+  const normalized = questions
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const id = typeof entry.id === "string" ? entry.id : null;
+      const text = typeof entry.text === "string" ? entry.text.trim() : null;
+      const votes = Number.isFinite(entry.votes) ? entry.votes : 0;
+      const createdAt = typeof entry.createdAt === "string" ? entry.createdAt : null;
+      const updatedAt = typeof entry.updatedAt === "string" ? entry.updatedAt : null;
+      if (!id || !text) {
+        return null;
+      }
+      return {
+        id,
+        text,
+        votes: Math.max(0, Math.floor(votes)),
+        createdAt: createdAt ?? new Date().toISOString(),
+        updatedAt: updatedAt ?? createdAt ?? new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+  return { version: 1, questions: normalized };
+}
+
+async function readQuestionsFile(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return normalizeQuestionsData(parsed);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { version: 1, questions: [] };
+    }
+    throw error;
+  }
+}
+
+async function writeQuestionsFile(filePath, data) {
+  const tempPath = `${filePath}.${randomUUID()}.tmp`;
+  const payload = `${JSON.stringify(data, null, 2)}\n`;
+  await fs.writeFile(tempPath, payload, "utf8");
+  await fs.rename(tempPath, filePath);
+}
+
+async function acquireLock(lockPath, { retries = 20, delayMs = 40 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fs.open(lockPath, "wx");
+    } catch (error) {
+      if (error.code !== "EEXIST") {
+        throw error;
+      }
+      if (attempt === retries) {
+        throw new Error("Failed to acquire questions lock");
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, delayMs + attempt * 25);
+      });
+    }
+  }
+  throw new Error("Failed to acquire questions lock");
+}
+
+async function withFileLock(lockPath, action) {
+  const handle = await acquireLock(lockPath);
+  try {
+    return await action();
+  } finally {
+    try {
+      await handle.close();
+    } catch (error) {
+      // ignore
+    }
+    try {
+      await fs.unlink(lockPath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+}
+
+async function updateQuestions(rootDir, action) {
+  const { filePath, lockPath } = getQuestionsPaths(rootDir);
+  return withFileLock(lockPath, async () => {
+    const data = await readQuestionsFile(filePath);
+    const result = await action(data);
+    await writeQuestionsFile(filePath, data);
+    return result;
+  });
+}
+
+let qrCodeModules = null;
+
+function getQrCodeModules() {
+  if (!qrCodeModules) {
+    const require = createRequire(import.meta.url);
+    const QRCode = require("qrcode-terminal/vendor/QRCode");
+    const QRErrorCorrectLevel = require("qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel");
+    qrCodeModules = { QRCode, QRErrorCorrectLevel };
+  }
+  return qrCodeModules;
+}
+
+function renderQrSvg(content, { margin = 2 } = {}) {
+  const { QRCode, QRErrorCorrectLevel } = getQrCodeModules();
+  const qrcode = new QRCode(-1, QRErrorCorrectLevel.L);
+  qrcode.addData(content);
+  qrcode.make();
+
+  const moduleCount = qrcode.getModuleCount();
+  const size = moduleCount + margin * 2;
+  const rows = qrcode.modules;
+  const parts = [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges">`,
+    `<rect width="100%" height="100%" fill="#fff" />`,
+  ];
+
+  for (let row = 0; row < moduleCount; row += 1) {
+    for (let col = 0; col < moduleCount; col += 1) {
+      if (rows[row][col]) {
+        const x = col + margin;
+        const y = row + margin;
+        parts.push(`<rect x="${x}" y="${y}" width="1" height="1" fill="#111" />`);
+      }
+    }
+  }
+
+  parts.push("</svg>");
+  return parts.join("");
+}
+
 export async function startServer({
   rootDir,
   rootUrl,
@@ -279,8 +437,11 @@ export async function startServer({
     const method = req.method || "GET";
     const isConfigUpdate =
       pathname === "/_/api/config" && (method === "PUT" || method === "POST");
+    const isQuestionsUpdate =
+      (pathname === "/_/api/questions" && method === "POST") ||
+      (pathname === "/_/api/questions/vote" && method === "POST");
 
-    if (method !== "GET" && method !== "HEAD" && !isConfigUpdate) {
+    if (method !== "GET" && method !== "HEAD" && !isConfigUpdate && !isQuestionsUpdate) {
       res.statusCode = 405;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end("Method not allowed\n");
@@ -299,6 +460,19 @@ export async function startServer({
           }
         }
         const filePath = path.join(CLIENT_DIR, "presenter.html");
+        const html = await fs.readFile(filePath, "utf8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", MIME_TYPES[".html"]);
+        if (req.method === "HEAD") {
+          res.end();
+          return;
+        }
+        res.end(html);
+        return;
+      }
+
+      if (pathname === "/_/questions" || pathname === "/_/questions/") {
+        const filePath = path.join(CLIENT_DIR, "questions.html");
         const html = await fs.readFile(filePath, "utf8");
         res.statusCode = 200;
         res.setHeader("Content-Type", MIME_TYPES[".html"]);
@@ -392,6 +566,128 @@ export async function startServer({
         hub.updateConfig(mergedConfig);
         sendJson(res, { saved: true, config: mergedConfig }, req.method);
         return;
+      }
+
+      if (pathname === "/_/api/questions/qr") {
+        const protocol = req.socket.encrypted ? "https" : "http";
+        const host = req.headers.host ?? "localhost";
+        const questionsUrl = new URL("/_/questions", `${protocol}://${host}`);
+        const svg = renderQrSvg(questionsUrl.toString());
+        res.statusCode = 200;
+        res.setHeader("Content-Type", MIME_TYPES[".svg"]);
+        res.end(svg);
+        return;
+      }
+
+      if (pathname === "/_/api/questions") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
+
+        if (req.method === "GET" || req.method === "HEAD") {
+          const data = await readQuestionsFile(getQuestionsPaths(rootDir).filePath);
+          sendJson(res, { questions: data.questions }, req.method);
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid JSON\n");
+          return;
+        }
+
+        const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+        if (!text) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Question text is required\n");
+          return;
+        }
+        if (text.length > QUESTION_TEXT_LIMIT) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end(`Question text must be under ${QUESTION_TEXT_LIMIT} characters\n`);
+          return;
+        }
+
+        try {
+          const question = await updateQuestions(rootDir, (data) => {
+            const now = new Date().toISOString();
+            const entry = {
+              id: randomUUID(),
+              text,
+              votes: 0,
+              createdAt: now,
+              updatedAt: now,
+            };
+            data.questions.push(entry);
+            return entry;
+          });
+          sendJson(res, { ok: true, question }, req.method);
+          return;
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to store question\n");
+          return;
+        }
+      }
+
+      if (pathname === "/_/api/questions/vote") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid JSON\n");
+          return;
+        }
+
+        const id = typeof payload?.id === "string" ? payload.id : null;
+        if (!id) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Question id is required\n");
+          return;
+        }
+
+        try {
+          const question = await updateQuestions(rootDir, (data) => {
+            const entry = data.questions.find((item) => item.id === id);
+            if (!entry) {
+              return null;
+            }
+            entry.votes = Math.max(0, Math.floor(Number(entry.votes ?? 0))) + 1;
+            entry.updatedAt = new Date().toISOString();
+            return entry;
+          });
+
+          if (!question) {
+            res.statusCode = 404;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Question not found\n");
+            return;
+          }
+
+          sendJson(res, { ok: true, question }, req.method);
+          return;
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to store vote\n");
+          return;
+        }
       }
 
       if (pathname === "/_/api/notes") {

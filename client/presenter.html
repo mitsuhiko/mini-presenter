@@ -162,6 +162,10 @@
             </div>
           </footer>
           <div class="presenter__export-fab">
+            <button class="presenter__button presenter__button--compact presenter__button--badge" id="questions-toggle" type="button">
+              <span>Questions</span>
+              <span class="presenter__button-badge" id="questions-count" aria-hidden="true"></span>
+            </button>
             <button class="presenter__button presenter__button--compact" id="export-pdf" type="button">
               Export PDF
             </button>
@@ -265,6 +269,13 @@
                       <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-presenter">⌨︎</button>
                     </div>
                   </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Questions</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-questions" type="text" placeholder="q" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-questions">⌨︎</button>
+                    </div>
+                  </label>
                 </div>
                 <div class="presenter__settings-hint">Comma-separated key names. Use modifiers like Meta+Shift+P or Capture to record.</div>
               </div>
@@ -316,6 +327,32 @@
             <textarea class="presenter__settings-json" id="settings-json" spellcheck="false"></textarea>
             <div class="presenter__settings-json-status" id="settings-json-status"></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="presenter__questions-overlay" id="questions-overlay" aria-hidden="true">
+      <div class="presenter__questions-panel" id="questions-panel" role="dialog" aria-modal="true" aria-labelledby="questions-title">
+        <div class="presenter__questions-header">
+          <div>
+            <div class="presenter__questions-title" id="questions-title">Audience questions</div>
+            <div class="presenter__questions-subtitle" id="questions-status"></div>
+          </div>
+          <div class="presenter__questions-actions">
+            <button class="presenter__button presenter__button--tiny" id="questions-refresh" type="button">Refresh</button>
+            <button class="presenter__button presenter__button--tiny" id="questions-qr-toggle" type="button" aria-pressed="false">Show QR</button>
+            <button class="presenter__button presenter__button--tiny" id="questions-close" type="button">Close</button>
+          </div>
+        </div>
+        <div class="presenter__questions-body">
+          <div class="presenter__questions-qr" id="questions-qr" aria-hidden="true">
+            <div class="presenter__questions-qr-title">Ask at</div>
+            <div class="presenter__questions-qr-frame">
+              <img id="questions-qr-image" alt="QR code for questions" />
+            </div>
+            <div class="presenter__questions-qr-link" id="questions-link"></div>
+          </div>
+          <div class="presenter__questions-list" id="questions-list"></div>
         </div>
       </div>
     </div>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audience questions</title>
+    <link rel="stylesheet" href="/_/client/questions.css" />
+  </head>
+  <body>
+    <main class="questions">
+      <header class="questions__header">
+        <div>
+          <h1 class="questions__title">Ask a question</h1>
+          <p class="questions__subtitle">Submit and vote on audience questions.</p>
+        </div>
+        <div class="questions__status" id="questions-status"></div>
+      </header>
+
+      <section class="questions__panel">
+        <form class="questions__form" id="questions-form">
+          <label class="questions__label" for="question-input">Your question</label>
+          <textarea
+            id="question-input"
+            class="questions__input"
+            name="question"
+            placeholder="Type your question..."
+            maxlength="500"
+            required
+          ></textarea>
+          <div class="questions__actions">
+            <span class="questions__hint" id="questions-hint">Max 500 characters.</span>
+            <button class="questions__button" type="submit" id="questions-submit">Send question</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="questions__panel">
+        <div class="questions__list-header">
+          <h2 class="questions__list-title">Live questions</h2>
+          <button class="questions__button questions__button--ghost" type="button" id="questions-refresh">
+            Refresh
+          </button>
+        </div>
+        <div class="questions__list" id="questions-list">
+          <div class="questions__empty">No questions yet.</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/_/client/questions.js" type="module"></script>
+  </body>
+</html>
