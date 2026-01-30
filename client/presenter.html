@@ -218,22 +218,34 @@
                 <div class="presenter__settings-subgrid">
                   <label class="presenter__settings-subrow">
                     <span>Next</span>
-                    <input class="presenter__settings-input" id="settings-key-next" type="text" placeholder="ArrowRight, Space" />
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-next" type="text" placeholder="ArrowRight, Space" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-next">⌨︎</button>
+                    </div>
                   </label>
                   <label class="presenter__settings-subrow">
                     <span>Prev</span>
-                    <input class="presenter__settings-input" id="settings-key-prev" type="text" placeholder="ArrowLeft" />
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-prev" type="text" placeholder="ArrowLeft" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-prev">⌨︎</button>
+                    </div>
                   </label>
                   <label class="presenter__settings-subrow">
                     <span>First</span>
-                    <input class="presenter__settings-input" id="settings-key-first" type="text" placeholder="Home" />
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-first" type="text" placeholder="Home" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-first">⌨︎</button>
+                    </div>
                   </label>
                   <label class="presenter__settings-subrow">
                     <span>Last</span>
-                    <input class="presenter__settings-input" id="settings-key-last" type="text" placeholder="End" />
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-last" type="text" placeholder="End" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-last">⌨︎</button>
+                    </div>
                   </label>
                 </div>
-                <div class="presenter__settings-hint">Comma-separated key names. Clear a row to use defaults.</div>
+                <div class="presenter__settings-hint">Comma-separated key names. Use Capture to record a key press.</div>
               </div>
 
               <div class="presenter__settings-label">Overlay shortcuts</div>
@@ -241,14 +253,20 @@
                 <div class="presenter__settings-subgrid">
                   <label class="presenter__settings-subrow">
                     <span>Fullscreen</span>
-                    <input class="presenter__settings-input" id="settings-key-fullscreen" type="text" placeholder="f" />
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-fullscreen" type="text" placeholder="f" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-fullscreen">⌨︎</button>
+                    </div>
                   </label>
                   <label class="presenter__settings-subrow">
                     <span>Presenter</span>
-                    <input class="presenter__settings-input" id="settings-key-presenter" type="text" placeholder="p" />
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-presenter" type="text" placeholder="p" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-presenter">⌨︎</button>
+                    </div>
                   </label>
                 </div>
-                <div class="presenter__settings-hint">Comma-separated key names. Use modifiers like Meta+Shift+P.</div>
+                <div class="presenter__settings-hint">Comma-separated key names. Use modifiers like Meta+Shift+P or Capture to record.</div>
               </div>
 
               <div class="presenter__settings-label">Notes</div>

@@ -788,6 +788,43 @@ body {
   outline-offset: 2px;
 }
 
+.presenter__settings-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.presenter__settings-input-row .presenter__settings-input {
+  flex: 1;
+}
+
+.presenter__settings-capture {
+  border: 1px solid var(--presenter-preview-border);
+  background: var(--presenter-preview-bg);
+  color: var(--presenter-title);
+  border-radius: 8px;
+  padding: 0.3rem 0.6rem;
+  font-size: 1rem;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.presenter__settings-capture:hover,
+.presenter__settings-capture:focus-visible {
+  outline: none;
+  background: var(--presenter-preview-frame-bg);
+}
+
+.presenter__settings-capture[data-active="true"] {
+  background: var(--presenter-button-bg);
+  color: var(--presenter-button-text);
+  border-color: var(--presenter-button-border);
+  box-shadow: inset 0 0 0 1px var(--presenter-button-highlight);
+}
+
 .presenter__settings-subgrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

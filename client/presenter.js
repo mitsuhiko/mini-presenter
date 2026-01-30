@@ -44,6 +44,7 @@ const settingsKeyFirst = document.querySelector("#settings-key-first");
 const settingsKeyLast = document.querySelector("#settings-key-last");
 const settingsKeyFullscreen = document.querySelector("#settings-key-fullscreen");
 const settingsKeyPresenter = document.querySelector("#settings-key-presenter");
+const hotkeyCaptureButtons = document.querySelectorAll("[data-hotkey-capture]");
 const settingsNotesSource = document.querySelector("#settings-notes-source");
 const settingsPreviewRelative = document.querySelector("#settings-preview-relative");
 const settingsTimerMode = document.querySelector("#settings-timer-mode");
@@ -331,6 +332,131 @@ function setupKeyAutocomplete(input) {
     blurTimer = setTimeout(hide, 120);
   });
 }
+
+const HOTKEY_MODIFIER_KEYS = new Set(KEY_MODIFIER_OPTIONS);
+let activeHotkeyCapture = null;
+
+function normalizeCapturedKey(key) {
+  if (key === " " || key === "Spacebar") {
+    return "Space";
+  }
+  if (key === "Unidentified" || key === "Dead") {
+    return null;
+  }
+  return key.length === 1 ? key.toUpperCase() : key;
+}
+
+function buildCapturedShortcut(event) {
+  const keyToken = normalizeCapturedKey(event.key);
+  if (!keyToken || HOTKEY_MODIFIER_KEYS.has(keyToken)) {
+    return null;
+  }
+  const parts = [];
+  if (event.metaKey) {
+    parts.push("Meta");
+  }
+  if (event.ctrlKey) {
+    parts.push("Control");
+  }
+  if (event.altKey) {
+    parts.push("Alt");
+  }
+  if (event.shiftKey) {
+    parts.push("Shift");
+  }
+  parts.push(keyToken);
+  return parts.join("+");
+}
+
+function appendCapturedShortcut(value, shortcut) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return shortcut;
+  }
+  const normalized = trimmed.replace(/,\s*$/, "");
+  return `${normalized}, ${shortcut}`;
+}
+
+function stopHotkeyCapture() {
+  if (!activeHotkeyCapture) {
+    return;
+  }
+  const { button } = activeHotkeyCapture;
+  button.dataset.active = "false";
+  button.textContent = "⌨︎";
+  activeHotkeyCapture = null;
+}
+
+function startHotkeyCapture(input, button) {
+  if (activeHotkeyCapture) {
+    stopHotkeyCapture();
+  }
+  activeHotkeyCapture = { input, button };
+  button.dataset.active = "true";
+  button.textContent = "⌨︎";
+  input.focus();
+}
+
+function setupHotkeyCapture(button) {
+  if (!button) {
+    return;
+  }
+  const targetId = button.dataset.hotkeyCapture;
+  if (!targetId) {
+    return;
+  }
+  const input = document.getElementById(targetId);
+  if (!input) {
+    return;
+  }
+  button.addEventListener("click", () => {
+    if (activeHotkeyCapture?.button === button) {
+      stopHotkeyCapture();
+      return;
+    }
+    startHotkeyCapture(input, button);
+  });
+}
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (!activeHotkeyCapture) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.key === "Escape") {
+      stopHotkeyCapture();
+      return;
+    }
+    const shortcut = buildCapturedShortcut(event);
+    if (!shortcut) {
+      return;
+    }
+    const { input } = activeHotkeyCapture;
+    input.value = appendCapturedShortcut(input.value, shortcut);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    stopHotkeyCapture();
+  },
+  true
+);
+
+document.addEventListener(
+  "click",
+  (event) => {
+    if (!activeHotkeyCapture) {
+      return;
+    }
+    const { button, input } = activeHotkeyCapture;
+    if (button.contains(event.target) || input.contains(event.target)) {
+      return;
+    }
+    stopHotkeyCapture();
+  },
+  true
+);
 
 let ws = null;
 let reconnectTimer = null;
@@ -833,6 +959,7 @@ function closeSettings() {
   settingsOverlay.dataset.open = "false";
   settingsOverlay.setAttribute("aria-hidden", "true");
   jsonEditing = false;
+  stopHotkeyCapture();
   clearSettingsPanelHeight();
 }
 
@@ -2267,6 +2394,9 @@ setupKeyAutocomplete(settingsKeyFirst);
 setupKeyAutocomplete(settingsKeyLast);
 setupKeyAutocomplete(settingsKeyFullscreen);
 setupKeyAutocomplete(settingsKeyPresenter);
+hotkeyCaptureButtons.forEach((button) => {
+  setupHotkeyCapture(button);
+});
 
 settingsKeyPrev?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
