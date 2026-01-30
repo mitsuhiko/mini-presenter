@@ -20,6 +20,8 @@ special marker hashes you can also have next slide previews.
 - Injected display script keeps the presenter view in sync.
 - Presenter dashboard with current slide preview, timer, and connection status.
 - Built-in laser pointer and drawing tools.
+- Audience Q&A page with live updates and QR sharing.
+- Presenter recording (slide events + audio) with playback for local decks.
 - Optional next-slide preview when your deck exposes slide order.
 - Speaker notes via deck API or Markdown files.
 - Configurable keyboard shortcuts.
@@ -117,6 +119,12 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
     "first": ["Home"],
     "last": ["End"]
   },
+  "shortcuts": {
+    "fullscreen": ["f"],
+    "presenter": ["p"],
+    "questions": ["q"],
+    "recording": ["Shift+R"]
+  },
   "notes": {
     "source": "files"
   },
@@ -134,12 +142,16 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
   "laser": {
     "color": "#ffdd4d",
     "size": 0.012
+  },
+  "recording": {
+    "deviceId": "default"
   }
 }
 ```
 
 - `title`: Optional presenter title (defaults to the slideshow `<title>`).
 - `keyboard`: Custom key bindings for presenter navigation.
+- `shortcuts`: Presenter shortcuts for fullscreen, presenter view, questions, and recording.
 - `notes.source`: `api`, `files`, or `none` (default: `api` + file fallback).
 - `preview.relativeHash`: Enable `#<hash>~next` preview resolution.
 - `timer.mode`: `countup` (default) or `countdown`.
@@ -148,6 +160,7 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
   with the presenter timer button.
 - `draw.color` / `draw.size`: Defaults for drawing color and size (ratio of slide width).
 - `laser.color` / `laser.size`: Defaults for laser color and size (ratio of slide width).
+- `recording.deviceId`: Optional audio input device id (set in presenter settings).
 
 The config is available at `/_/api/config`.
 
@@ -170,6 +183,23 @@ Numeric hashes with `-`, `.`, or `--` suffixes fall back to the base number if t
 specific file is missing (for example `#2/1` → `notes/2.md`).
 
 Notes are fetched from `/_/api/notes?hash=%23intro` and rendered as pre-wrapped text.
+
+## Audience questions (Q&A)
+
+Audience members can submit and vote on questions at:
+
+- `/_/questions` — live Q&A page
+- `/_/questions/qr` — QR code landing page (handy with `--funnel`)
+
+In the presenter view, press `q` (or click the questions badge) to open the live
+questions panel, refresh, and mark questions as answered.
+
+## Recording and playback
+
+Use the record button (default shortcut: `Shift+R`) in the presenter view to capture
+slide navigation, laser/draw actions, and microphone audio. Recordings are stored as
+`recording.json` + `recording.webm` next to your local deck and can be replayed from
+the presenter view via the play button. Recording is only available for local folders.
 
 ## Next slide preview
 
