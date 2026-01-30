@@ -47,6 +47,8 @@
   }
 
   function mutePresenterPreviewAudio() {
+    const observedElements = new WeakSet();
+
     const muteElement = (element) => {
       if (!element) {
         return;
@@ -61,13 +63,34 @@
       } catch (error) {
         // ignore
       }
+      try {
+        element.autoplay = false;
+      } catch (error) {
+        // ignore
+      }
       if (typeof element.setAttribute === "function") {
         element.setAttribute("muted", "");
+        element.removeAttribute("autoplay");
       }
     };
 
+    const observeElement = (element) => {
+      if (!element || observedElements.has(element)) {
+        return;
+      }
+      observedElements.add(element);
+      const reapplyMute = () => muteElement(element);
+      element.addEventListener("volumechange", reapplyMute);
+      element.addEventListener("playing", reapplyMute);
+      element.addEventListener("play", reapplyMute);
+      element.addEventListener("loadedmetadata", reapplyMute);
+    };
+
     const muteAll = () => {
-      document.querySelectorAll("audio, video").forEach(muteElement);
+      document.querySelectorAll("audio, video").forEach((element) => {
+        muteElement(element);
+        observeElement(element);
+      });
     };
 
     muteAll();
@@ -77,6 +100,7 @@
       (event) => {
         if (event.target instanceof HTMLMediaElement) {
           muteElement(event.target);
+          observeElement(event.target);
         }
       },
       true
