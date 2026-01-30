@@ -62,10 +62,11 @@ const questionsOverlay = document.querySelector("#questions-overlay");
 const questionsCloseButton = document.querySelector("#questions-close");
 const questionsRefreshButton = document.querySelector("#questions-refresh");
 const questionsOpenQrButton = document.querySelector("#questions-open-qr");
-const questionsLink = document.querySelector("#questions-link");
-const questionsQrLink = document.querySelector("#questions-qr-link");
 const questionsList = document.querySelector("#questions-list");
 const questionsStatus = document.querySelector("#questions-status");
+const questionsConfirmOverlay = document.querySelector("#questions-confirm");
+const questionsConfirmDelete = document.querySelector("#questions-confirm-delete");
+const questionsConfirmCancel = document.querySelector("#questions-confirm-cancel");
 
 const RECONNECT_DELAY_MS = 1000;
 const TIMER_INTERVAL_MS = 250;
@@ -645,6 +646,7 @@ let settingsPanelHeight = null;
 let shortcutConfig = { ...DEFAULT_SHORTCUTS };
 let questionsPollingTimer = null;
 let questionsAvailable = true;
+let pendingDeleteQuestionId = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -1101,10 +1103,6 @@ function closeSettings() {
   clearSettingsPanelHeight();
 }
 
-function buildQuestionsUrl() {
-  return new URL("/_/questions", window.location.origin).toString();
-}
-
 function buildQuestionsQrPageUrl() {
   return new URL("/_/questions/qr", window.location.origin).toString();
 }
@@ -1115,6 +1113,14 @@ function buildQuestionsApiUrl() {
 
 function buildQuestionsDeleteUrl() {
   const url = new URL("/_/api/questions/delete", window.location.origin);
+  if (presenterKey) {
+    url.searchParams.set("key", presenterKey);
+  }
+  return url.toString();
+}
+
+function buildQuestionsAnswerUrl() {
+  const url = new URL("/_/api/questions/answer", window.location.origin);
   if (presenterKey) {
     url.searchParams.set("key", presenterKey);
   }
@@ -1140,18 +1146,14 @@ function setQuestionsOverlayOpen(open) {
   questionsOverlay.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
-function updateQuestionsLinks() {
-  const url = buildQuestionsUrl();
-  const qrUrl = buildQuestionsQrPageUrl();
-  if (questionsLink) {
-    questionsLink.textContent = url;
-    questionsLink.href = url;
+function setQuestionsConfirmOpen(open) {
+  if (!questionsConfirmOverlay) {
+    return;
   }
-  if (questionsQrLink) {
-    questionsQrLink.textContent = qrUrl;
-    questionsQrLink.href = qrUrl;
-  }
+  questionsConfirmOverlay.dataset.open = open ? "true" : "false";
+  questionsConfirmOverlay.setAttribute("aria-hidden", open ? "false" : "true");
 }
+
 
 function formatQuestionTimestamp(isoString) {
   if (!isoString) {
@@ -1213,29 +1215,46 @@ function renderQuestionsList(questions) {
     content.appendChild(text);
 
     const timestamp = formatQuestionTimestamp(question.createdAt);
-    if (timestamp) {
+    const status = question.answered ? "Answered" : null;
+    if (timestamp || status) {
       const meta = document.createElement("div");
       meta.className = "presenter__question-meta";
-      meta.textContent = `Asked at ${timestamp}`;
+      meta.textContent = timestamp && status ? `Asked at ${timestamp} · ${status}` : status || `Asked at ${timestamp}`;
       content.appendChild(meta);
     }
+
+    if (question.answered) {
+      card.dataset.answered = "true";
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "presenter__question-actions";
+
+    const answerButton = document.createElement("button");
+    answerButton.type = "button";
+    answerButton.className = "presenter__button presenter__button--tiny";
+    answerButton.textContent = question.answered ? "Unanswer" : "Answered";
+    answerButton.addEventListener("click", async () => {
+      answerButton.disabled = true;
+      await markQuestionAnswered(question.id, !question.answered);
+      answerButton.disabled = false;
+    });
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "presenter__button presenter__button--tiny";
     deleteButton.textContent = "Delete";
-    deleteButton.addEventListener("click", async () => {
-      if (!window.confirm("Delete this question?")) {
-        return;
-      }
-      deleteButton.disabled = true;
-      await deleteQuestion(question.id);
-      deleteButton.disabled = false;
+    deleteButton.addEventListener("click", () => {
+      pendingDeleteQuestionId = question.id;
+      setQuestionsConfirmOpen(true);
     });
+
+    actions.appendChild(answerButton);
+    actions.appendChild(deleteButton);
 
     card.appendChild(votes);
     card.appendChild(content);
-    card.appendChild(deleteButton);
+    card.appendChild(actions);
     questionsList.appendChild(card);
   });
 }
@@ -1254,10 +1273,30 @@ async function deleteQuestion(id) {
       const message = await response.text().catch(() => "");
       throw new Error(message || `Failed to delete question (${response.status})`);
     }
-    await fetchQuestions({ silent: true });
   } catch (error) {
     if (questionsStatus) {
       questionsStatus.textContent = error.message || "Failed to delete question.";
+    }
+  }
+}
+
+async function markQuestionAnswered(id, answered) {
+  if (!id) {
+    return;
+  }
+  try {
+    const response = await fetch(buildQuestionsAnswerUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, answered }),
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(message || `Failed to update question (${response.status})`);
+    }
+  } catch (error) {
+    if (questionsStatus) {
+      questionsStatus.textContent = error.message || "Failed to update question.";
     }
   }
 }
@@ -1311,7 +1350,9 @@ function openQuestionsOverlay() {
     return;
   }
   setQuestionsOverlayOpen(true);
-  updateQuestionsLinks();
+  if (questionsOpenQrButton) {
+    questionsOpenQrButton.href = buildQuestionsQrPageUrl();
+  }
   fetchQuestions();
 }
 
@@ -2486,6 +2527,16 @@ function handleMessage(event) {
     return;
   }
 
+  if (message.type === "questions") {
+    const questions = Array.isArray(message.questions) ? message.questions : [];
+    renderQuestionsList(questions);
+    updateQuestionsBadge(questions.length);
+    if (questionsStatus) {
+      questionsStatus.textContent = "Live update";
+    }
+    return;
+  }
+
   if (message.type === "reload") {
     window.location.reload();
   }
@@ -2766,9 +2817,27 @@ questionsRefreshButton?.addEventListener("click", () => {
   fetchQuestions();
 });
 
-questionsOpenQrButton?.addEventListener("click", () => {
-  const url = buildQuestionsQrPageUrl();
-  window.open(url, "miniPresenterQuestionsQr", "width=720,height=720");
+questionsConfirmCancel?.addEventListener("click", () => {
+  pendingDeleteQuestionId = null;
+  setQuestionsConfirmOpen(false);
+});
+
+questionsConfirmOverlay?.addEventListener("click", (event) => {
+  if (event.target === questionsConfirmOverlay) {
+    pendingDeleteQuestionId = null;
+    setQuestionsConfirmOpen(false);
+  }
+});
+
+questionsConfirmDelete?.addEventListener("click", async () => {
+  if (!pendingDeleteQuestionId) {
+    setQuestionsConfirmOpen(false);
+    return;
+  }
+  const id = pendingDeleteQuestionId;
+  pendingDeleteQuestionId = null;
+  setQuestionsConfirmOpen(false);
+  await deleteQuestion(id);
 });
 
 settingsJsonToggle?.addEventListener("click", () => {
@@ -2953,6 +3022,8 @@ document.addEventListener("keydown", (event) => {
     closeResetPopover();
     closeSettings();
     closeQuestionsOverlay();
+    pendingDeleteQuestionId = null;
+    setQuestionsConfirmOpen(false);
   }
 });
 

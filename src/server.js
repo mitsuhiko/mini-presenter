@@ -317,6 +317,7 @@ function normalizeQuestionsData(payload) {
       const voters = Array.isArray(entry.voters)
         ? entry.voters.filter((value) => typeof value === "string")
         : [];
+      const answered = entry.answered === true;
       if (!id || !text) {
         return null;
       }
@@ -325,6 +326,7 @@ function normalizeQuestionsData(payload) {
         text,
         votes: Math.max(0, Math.floor(votes)),
         voters,
+        answered,
         createdAt: createdAt ?? new Date().toISOString(),
         updatedAt: updatedAt ?? createdAt ?? new Date().toISOString(),
       };
@@ -411,7 +413,7 @@ async function updateQuestions(rootDir, action) {
     const data = await readQuestionsFile(filePath);
     const result = await action(data);
     await writeQuestionsFile(filePath, data);
-    return result;
+    return { result, questions: data.questions };
   });
 }
 
@@ -483,7 +485,8 @@ export async function startServer({
     const isQuestionsUpdate =
       (pathname === "/_/api/questions" && method === "POST") ||
       (pathname === "/_/api/questions/vote" && method === "POST") ||
-      (pathname === "/_/api/questions/delete" && method === "POST");
+      (pathname === "/_/api/questions/delete" && method === "POST") ||
+      (pathname === "/_/api/questions/answer" && method === "POST");
 
     if (method !== "GET" && method !== "HEAD" && !isConfigUpdate && !isQuestionsUpdate) {
       res.statusCode = 405;
@@ -690,19 +693,22 @@ export async function startServer({
         }
 
         try {
-          const question = await updateQuestions(rootDir, (data) => {
+          const { result: question, questions } = await updateQuestions(rootDir, (data) => {
             const now = new Date().toISOString();
             const entry = {
               id: randomUUID(),
               text,
               votes: 0,
               voters: [],
+              answered: false,
               createdAt: now,
               updatedAt: now,
             };
             data.questions.push(entry);
             return entry;
           });
+          const sanitizedQuestions = stripQuestionVoters(questions);
+          hub.broadcastQuestions(sanitizedQuestions);
           sendJson(res, { ok: true, question: stripQuestionVoters([question])[0] }, req.method);
           return;
         } catch (error) {
@@ -746,10 +752,13 @@ export async function startServer({
         }
 
         try {
-          const result = await updateQuestions(rootDir, (data) => {
+          const { result, questions } = await updateQuestions(rootDir, (data) => {
             const entry = data.questions.find((item) => item.id === id);
             if (!entry) {
               return null;
+            }
+            if (entry.answered) {
+              return { entry, voted: false };
             }
             if (!Array.isArray(entry.voters)) {
               entry.voters = [];
@@ -770,7 +779,15 @@ export async function startServer({
             return;
           }
 
-          sendJson(res, { ok: true, voted: result.voted, question: stripQuestionVoters([result.entry])[0] }, req.method);
+          if (result.voted) {
+            hub.broadcastQuestions(stripQuestionVoters(questions));
+          }
+
+          sendJson(
+            res,
+            { ok: true, voted: result.voted, question: stripQuestionVoters([result.entry])[0] },
+            req.method
+          );
           return;
         } catch (error) {
           res.statusCode = 500;
@@ -822,7 +839,7 @@ export async function startServer({
         }
 
         try {
-          const removed = await updateQuestions(rootDir, (data) => {
+          const { result: removed, questions } = await updateQuestions(rootDir, (data) => {
             const index = data.questions.findIndex((item) => item.id === id);
             if (index === -1) {
               return null;
@@ -838,12 +855,84 @@ export async function startServer({
             return;
           }
 
+          hub.broadcastQuestions(stripQuestionVoters(questions));
           sendJson(res, { ok: true }, req.method);
           return;
         } catch (error) {
           res.statusCode = 500;
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
           res.end("Failed to delete question\n");
+          return;
+        }
+      }
+
+      if (pathname === "/_/api/questions/answer") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
+
+        if (!isLocalRequest(req)) {
+          if (presenterKey) {
+            const providedKey = requestUrl.searchParams.get("key");
+            if (providedKey !== presenterKey) {
+              res.statusCode = 401;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Unauthorized\n");
+              return;
+            }
+          } else {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Forbidden\n");
+            return;
+          }
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid JSON\n");
+          return;
+        }
+
+        const id = typeof payload?.id === "string" ? payload.id : null;
+        const answered = payload?.answered === true;
+        if (!id) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Question id is required\n");
+          return;
+        }
+
+        try {
+          const { result: entry, questions } = await updateQuestions(rootDir, (data) => {
+            const question = data.questions.find((item) => item.id === id);
+            if (!question) {
+              return null;
+            }
+            question.answered = answered;
+            question.updatedAt = new Date().toISOString();
+            return question;
+          });
+
+          if (!entry) {
+            res.statusCode = 404;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Question not found\n");
+            return;
+          }
+
+          hub.broadcastQuestions(stripQuestionVoters(questions));
+          sendJson(res, { ok: true, question: stripQuestionVoters([entry])[0] }, req.method);
+          return;
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to update question\n");
           return;
         }
       }

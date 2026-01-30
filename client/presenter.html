@@ -340,17 +340,22 @@
           </div>
           <div class="presenter__questions-actions">
             <button class="presenter__button presenter__button--tiny" id="questions-refresh" type="button">Refresh</button>
-            <button class="presenter__button presenter__button--tiny" id="questions-open-qr" type="button">Open QR page</button>
+            <a class="presenter__button presenter__button--tiny" id="questions-open-qr" target="_blank" rel="noopener noreferrer">Open QR page</a>
             <button class="presenter__button presenter__button--tiny" id="questions-close" type="button">Close</button>
           </div>
         </div>
         <div class="presenter__questions-body">
-          <div class="presenter__questions-share">
-            <div class="presenter__questions-share-title">Share with attendees</div>
-            <a class="presenter__questions-link" id="questions-link" target="_blank" rel="noopener noreferrer"></a>
-            <a class="presenter__questions-link" id="questions-qr-link" target="_blank" rel="noopener noreferrer"></a>
-          </div>
           <div class="presenter__questions-list" id="questions-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="presenter__questions-confirm" id="questions-confirm" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="presenter__questions-confirm-card">
+        <div class="presenter__questions-confirm-title">Delete question?</div>
+        <div class="presenter__questions-confirm-actions">
+          <button class="presenter__button presenter__button--tiny" id="questions-confirm-delete" type="button">Delete</button>
+          <button class="presenter__button presenter__button--tiny" id="questions-confirm-cancel" type="button">Cancel</button>
         </div>
       </div>
     </div>

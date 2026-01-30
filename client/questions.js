@@ -8,8 +8,12 @@ const hint = document.querySelector("#questions-hint");
 
 const QUESTIONS_POLL_MS = 8000;
 const VOTE_STORAGE_KEY = "miniPresenterQuestionVotes";
+const WS_RECONNECT_DELAY_MS = 1000;
 let pollTimer = null;
 let votedQuestions = new Set();
+let ws = null;
+let reconnectTimer = null;
+let wsConnected = false;
 
 function buildQuestionsApiUrl() {
   return new URL("/_/api/questions", window.location.origin);
@@ -92,6 +96,9 @@ function renderQuestions(questions) {
   sorted.forEach((question) => {
     const card = document.createElement("div");
     card.className = "question-card";
+    if (question.answered) {
+      card.dataset.answered = "true";
+    }
 
     const votes = document.createElement("div");
     votes.className = "question-card__votes";
@@ -104,7 +111,8 @@ function renderQuestions(questions) {
     const meta = document.createElement("div");
     meta.className = "question-card__meta";
     const time = formatTime(question.createdAt);
-    meta.textContent = time ? `Asked at ${time}` : "";
+    const status = question.answered ? "Answered" : null;
+    meta.textContent = time && status ? `Asked at ${time} · ${status}` : status || (time ? `Asked at ${time}` : "");
     content.appendChild(text);
     if (meta.textContent) {
       content.appendChild(meta);
@@ -114,13 +122,14 @@ function renderQuestions(questions) {
     voteButton.type = "button";
     voteButton.className = "question-card__vote";
     const hasVoted = votedQuestions.has(question.id);
-    voteButton.textContent = hasVoted ? "Voted" : "Vote";
-    voteButton.disabled = hasVoted;
+    const isAnswered = question.answered === true;
+    voteButton.textContent = isAnswered ? "Answered" : hasVoted ? "Voted" : "Vote";
+    voteButton.disabled = isAnswered || hasVoted;
     voteButton.addEventListener("click", () => {
       voteButton.disabled = true;
       submitVote(question.id).finally(() => {
-        voteButton.disabled = votedQuestions.has(question.id);
-        voteButton.textContent = votedQuestions.has(question.id) ? "Voted" : "Vote";
+        voteButton.disabled = votedQuestions.has(question.id) || question.answered === true;
+        voteButton.textContent = question.answered ? "Answered" : votedQuestions.has(question.id) ? "Voted" : "Vote";
       });
     });
 
@@ -137,9 +146,9 @@ async function fetchQuestions({ silent = false } = {}) {
     if (response.status === 501 || response.status === 404) {
       setStatus("Questions are unavailable for this presentation.");
       submitButton?.setAttribute("disabled", "true");
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
+      stopPolling();
+      if (ws) {
+        ws.close();
       }
       return;
     }
@@ -183,7 +192,7 @@ async function submitVote(id) {
     return;
   }
   const payload = await response.json().catch(() => null);
-  if (payload?.voted) {
+  if (payload?.voted || payload?.question?.answered) {
     votedQuestions.add(id);
     saveVoteState();
   }
@@ -191,12 +200,69 @@ async function submitVote(id) {
 }
 
 function schedulePolling() {
-  if (pollTimer) {
+  if (pollTimer || wsConnected) {
     return;
   }
   pollTimer = setInterval(() => {
     fetchQuestions({ silent: true });
   }, QUESTIONS_POLL_MS);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function getWebSocketUrl() {
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  return `${protocol}://${location.host}/_/ws`;
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) {
+    return;
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectWebSocket();
+  }, WS_RECONNECT_DELAY_MS);
+}
+
+function connectWebSocket() {
+  if (ws) {
+    ws.close();
+  }
+  ws = new WebSocket(getWebSocketUrl());
+  ws.addEventListener("open", () => {
+    wsConnected = true;
+    stopPolling();
+    ws.send(JSON.stringify({ type: "register", role: "questions" }));
+  });
+  ws.addEventListener("message", (event) => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch (error) {
+      return;
+    }
+    if (message.type === "questions") {
+      const questions = Array.isArray(message.questions) ? message.questions : [];
+      renderQuestions(questions);
+      setStatus("Live update");
+    }
+  });
+  ws.addEventListener("close", () => {
+    wsConnected = false;
+    schedulePolling();
+    scheduleReconnect();
+  });
+  ws.addEventListener("error", () => {
+    wsConnected = false;
+    schedulePolling();
+    scheduleReconnect();
+  });
 }
 
 form?.addEventListener("submit", async (event) => {
@@ -230,4 +296,5 @@ refreshButton?.addEventListener("click", () => {
 
 votedQuestions = loadVoteState();
 fetchQuestions({ silent: true });
+connectWebSocket();
 schedulePolling();

@@ -6,10 +6,12 @@ class Hub {
     this.wss = wss;
     this.displays = new Set();
     this.presenters = new Set();
+    this.questionListeners = new Set();
     this.currentState = null;
     this.config = config ?? null;
     this.sessionId = config?.sessionId ?? null;
     this.presenterKey = presenterKey ?? null;
+    this.questions = null;
 
     this.wss.on("connection", (ws, req) => {
       ws.isLocal = isLocalRequest(req);
@@ -70,6 +72,9 @@ class Hub {
     if (ws.role === "presenter") {
       this.presenters.delete(ws);
     }
+    if (ws.role === "questions") {
+      this.questionListeners.delete(ws);
+    }
 
     if (role === "display") {
       ws.role = "display";
@@ -88,6 +93,15 @@ class Hub {
           ...this.currentState,
           displays: this.displays.size,
         });
+      }
+      if (this.questions) {
+        this.send(ws, { type: "questions", questions: this.questions });
+      }
+    } else if (role === "questions") {
+      ws.role = "questions";
+      this.questionListeners.add(ws);
+      if (this.questions) {
+        this.send(ws, { type: "questions", questions: this.questions });
       }
     }
 
@@ -112,6 +126,9 @@ class Hub {
     }
     if (ws.role === "presenter") {
       this.presenters.delete(ws);
+    }
+    if (ws.role === "questions") {
+      this.questionListeners.delete(ws);
     }
     this.sendSync();
   }
@@ -145,6 +162,14 @@ class Hub {
 
   broadcastReload({ preserveHash = true } = {}) {
     this.broadcast(this.displays, { type: "reload", preserveHash });
+  }
+
+  broadcastQuestions(questions) {
+    this.questions = questions ?? [];
+    this.broadcast(new Set([...this.presenters, ...this.questionListeners]), {
+      type: "questions",
+      questions: this.questions,
+    });
   }
 
   broadcast(targets, message) {
