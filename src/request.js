@@ -28,6 +28,14 @@ function extractForwardedAddress(req) {
   return null;
 }
 
+export function getRequestAddress(req) {
+  if (!req) {
+    return null;
+  }
+  const forwarded = extractForwardedAddress(req);
+  return normalizeAddress(forwarded ?? req.socket?.remoteAddress ?? null);
+}
+
 export function isLocalRequest(req) {
   if (!req) {
     return false;

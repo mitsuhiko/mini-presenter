@@ -13,8 +13,45 @@
         <div class="qr__frame">
           <img src="/_/api/questions/qr" alt="QR code for questions" />
         </div>
-        <a class="qr__link" href="/_/questions" target="_blank" rel="noopener noreferrer">/_/questions</a>
+        <a class="qr__link" id="qr-link" href="/_/questions" target="_blank" rel="noopener noreferrer">
+          /_/questions
+        </a>
+        <p class="qr__warning" id="qr-warning" hidden>
+          Tip: run mini-presenter with <code>--funnel</code> to make questions reachable for others.
+        </p>
       </div>
     </main>
+
+    <script>
+      const link = document.querySelector("#qr-link");
+      const warning = document.querySelector("#qr-warning");
+
+      function updateLink(baseUrl) {
+        if (!link) {
+          return;
+        }
+        const url = new URL("/_/questions", baseUrl);
+        link.href = url.toString();
+        link.textContent = url.toString();
+      }
+
+      updateLink(window.location.origin);
+
+      fetch("/_/api/config")
+        .then((response) => (response.ok ? response.json() : null))
+        .then((config) => {
+          const externalUrl = typeof config?.externalUrl === "string" ? config.externalUrl.trim() : "";
+          if (externalUrl) {
+            updateLink(externalUrl);
+          } else if (warning) {
+            warning.hidden = false;
+          }
+        })
+        .catch(() => {
+          if (warning) {
+            warning.hidden = false;
+          }
+        });
+    </script>
   </body>
 </html>

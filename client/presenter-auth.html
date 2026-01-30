@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presenter access</title>
+    <link rel="stylesheet" href="/_/client/presenter.css" />
+  </head>
+  <body class="presenter-auth">
+    <main class="presenter-auth__card">
+      <div class="presenter-auth__title">Presenter access</div>
+      {{MESSAGE_BLOCK}}
+      <form class="presenter-auth__form" action="/_/presenter" method="get">
+        <label class="presenter-auth__label" for="presenter-key">Presenter PIN</label>
+        <input
+          class="presenter-auth__input"
+          id="presenter-key"
+          name="key"
+          type="password"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          required
+          {{DISABLED}}
+        />
+        <button class="presenter__button presenter__button--compact presenter-auth__submit" type="submit" {{DISABLED}}>
+          Enter
+        </button>
+      </form>
+      <p class="presenter-auth__hint">Enter the presenter PIN to access the control panel.</p>
+    </main>
+  </body>
+</html>

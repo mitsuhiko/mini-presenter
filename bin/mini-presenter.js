@@ -107,7 +107,7 @@ function printPresenterQr(url) {
   qrcode.generate(url, { small: true });
 }
 
-function startFunnel({ port, presenterKey }) {
+function startFunnel({ port, presenterKey, onUrl }) {
   console.log("Connecting tunnel...");
   const child = spawn(
     "cloudflared",
@@ -120,14 +120,18 @@ function startFunnel({ port, presenterKey }) {
   const handleLine = (line) => {
     const match = line.match(urlPattern);
     if (match && !printedUrl) {
+      const externalUrl = match[0];
       printedUrl = true;
+      if (typeof onUrl === "function") {
+        onUrl(externalUrl);
+      }
       console.log(
-        buildUrlBlock("remote", match[0], {
+        buildUrlBlock("remote", externalUrl, {
           presenterKey,
           includeKey: true,
         })
       );
-      const presenterUrl = buildPresenterUrl(match[0], {
+      const presenterUrl = buildPresenterUrl(externalUrl, {
         presenterKey,
         includeKey: true,
       });
@@ -214,7 +218,7 @@ async function runServeCommand() {
     presenterKey,
   });
 
-  console.log(`Presenter code: ${presenterKey}`);
+  console.log(`Presenter PIN: ${presenterKey}`);
   console.log(
     buildUrlBlock("local", `http://localhost:${port}`, {
       presenterKey,
@@ -224,7 +228,15 @@ async function runServeCommand() {
 
   let funnelProcess = null;
   if (funnel) {
-    funnelProcess = startFunnel({ port, presenterKey });
+    funnelProcess = startFunnel({
+      port,
+      presenterKey,
+      onUrl: (url) => {
+        if (typeof server.setExternalUrl === "function") {
+          server.setExternalUrl(url);
+        }
+      },
+    });
   }
 
   let isShuttingDown = false;

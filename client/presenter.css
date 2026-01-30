@@ -1206,3 +1206,92 @@ body {
   }
 
 }
+
+.presenter-auth {
+  min-height: 100vh;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--presenter-bg);
+  color: var(--presenter-text);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+.presenter-auth__card {
+  width: min(420px, 90vw);
+  padding: 2rem 2.25rem;
+  border-radius: calc(var(--presenter-radius) + 2px);
+  background: var(--presenter-panel-bg);
+  border: 2px solid var(--presenter-panel-border);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.25);
+  display: grid;
+  gap: 1.25rem;
+}
+
+.presenter-auth__title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--presenter-title);
+}
+
+.presenter-auth__message {
+  padding: 0.75rem 1rem;
+  border-radius: var(--presenter-radius);
+  border: 2px solid var(--presenter-connection-warn);
+  background: color-mix(in srgb, var(--presenter-connection-warn) 15%, transparent);
+  color: var(--presenter-title);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.presenter-auth__message[data-level="error"] {
+  border-color: var(--presenter-button-highlight);
+  background: color-mix(in srgb, var(--presenter-button-highlight) 18%, transparent);
+}
+
+.presenter-auth__detail {
+  font-size: 0.9rem;
+  color: var(--presenter-text-muted);
+}
+
+.presenter-auth__form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.presenter-auth__label {
+  font-weight: 600;
+  color: var(--presenter-title);
+}
+
+.presenter-auth__input {
+  width: 100%;
+  border-radius: var(--presenter-radius);
+  border: 2px solid var(--presenter-preview-border);
+  padding: 0.65rem 0.75rem;
+  font-size: 1rem;
+  background: var(--presenter-preview-frame-bg);
+  color: var(--presenter-text);
+}
+
+.presenter-auth__input:focus-visible {
+  outline: 2px solid var(--presenter-button-highlight);
+  outline-offset: 2px;
+}
+
+.presenter-auth__input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.presenter-auth__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.presenter-auth__hint {
+  margin: 0;
+  color: var(--presenter-text-subtle);
+  font-size: 0.95rem;
+}

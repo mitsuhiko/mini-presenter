@@ -413,12 +413,12 @@
       background: rgba(255, 255, 255, 0.92);
       color: #1b1b1b;
       border-radius: 20px;
-      padding: 2rem 2.5rem;
+      padding: 2.5rem 3rem;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 1rem;
-      max-width: min(80vw, 520px);
+      max-width: min(90vw, 640px);
       box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
       text-align: center;
     `;
@@ -434,24 +434,11 @@
 
     const link = document.createElement("div");
     link.textContent = questionsUrl;
-    link.style.cssText = "font-size: 1.1rem; font-weight: 600;";
-
-    const qrLink = document.createElement("a");
-    qrLink.href = qrPageUrl;
-    qrLink.textContent = "Open QR page";
-    qrLink.target = "_blank";
-    qrLink.rel = "noopener noreferrer";
-    qrLink.style.cssText = "font-size: 0.95rem; color: #234c7a;";
-
-    const hint = document.createElement("div");
-    hint.textContent = "Press Q to hide";
-    hint.style.cssText = "font-size: 0.85rem; color: #4b4b4b;";
+    link.style.cssText = "font-size: 1.1rem; font-weight: 600; word-break: break-all; max-width: 100%;";
 
     card.appendChild(title);
     card.appendChild(img);
     card.appendChild(link);
-    card.appendChild(qrLink);
-    card.appendChild(hint);
     overlay.appendChild(card);
 
     const setOpen = (open) => {

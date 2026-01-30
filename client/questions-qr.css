@@ -73,4 +73,20 @@ body {
   border-radius: 999px;
   border: 1px solid var(--qr-border);
   background: rgba(0, 0, 0, 0.08);
+  max-width: 100%;
+  text-align: center;
+  word-break: break-all;
+}
+
+.qr__warning {
+  margin: 0;
+  font-size: 0.9rem;
+  text-align: center;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+@media (prefers-color-scheme: dark) {
+  .qr__warning {
+    color: rgba(225, 241, 247, 0.7);
+  }
 }

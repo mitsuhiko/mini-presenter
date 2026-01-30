@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { injectPresenterScript } from "./injector.js";
 import { watchDirectory } from "./watcher.js";
 import { createWebSocketHub } from "./websocket.js";
-import { isLocalRequest } from "./request.js";
+import { getRequestAddress, isLocalRequest } from "./request.js";
 
 const CLIENT_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -19,6 +19,10 @@ const QUESTIONS_FILE_NAME = "questions.json";
 const QUESTIONS_LOCK_NAME = ".questions.lock";
 const QUESTION_TEXT_LIMIT = 500;
 const QUESTION_COOKIE_NAME = "miniPresenterQuestionToken";
+const PRESENTER_AUTH_MAX_ATTEMPTS = 5;
+const PRESENTER_AUTH_WINDOW_MS = 60_000;
+const PRESENTER_AUTH_BLOCK_MS = 5 * 60_000;
+const presenterAuthAttempts = new Map();
 
 function normalizeBaseUrl(url) {
   const base = new URL(url);
@@ -88,6 +92,72 @@ async function sendQuestionsUnsupported(res) {
   res.statusCode = 501;
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.end("Questions are not available for remote decks\n");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatRetryAfter(ms) {
+  const seconds = Math.max(1, Math.ceil(ms / 1000));
+  if (seconds < 60) {
+    return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  }
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function getPresenterAuthEntry(address, now = Date.now()) {
+  const key = address || "unknown";
+  let entry = presenterAuthAttempts.get(key);
+  if (!entry || entry.resetAt <= now) {
+    entry = { count: 0, resetAt: now + PRESENTER_AUTH_WINDOW_MS, blockedUntil: 0 };
+  }
+  if (entry.blockedUntil && entry.blockedUntil <= now) {
+    entry.blockedUntil = 0;
+  }
+  presenterAuthAttempts.set(key, entry);
+  return { entry, key };
+}
+
+function clearPresenterAuthEntry(address) {
+  if (!address) {
+    return;
+  }
+  presenterAuthAttempts.delete(address);
+}
+
+async function sendPresenterAuthPage(res, {
+  statusCode,
+  message,
+  detail,
+  disabled = false,
+  level = "warn",
+  method = "GET",
+}) {
+  const filePath = path.join(CLIENT_DIR, "presenter-auth.html");
+  const template = await fs.readFile(filePath, "utf8");
+  const safeMessage = message ? escapeHtml(message) : "";
+  const safeDetail = detail ? escapeHtml(detail) : "";
+  const messageBlock =
+    safeMessage || safeDetail
+      ? `<div class="presenter-auth__message" data-level="${level}"><strong>${safeMessage}</strong>${safeDetail ? `<div class="presenter-auth__detail">${safeDetail}</div>` : ""}</div>`
+      : "";
+  const html = template
+    .replace("{{MESSAGE_BLOCK}}", messageBlock)
+    .replaceAll("{{DISABLED}}", disabled ? "disabled" : "");
+  res.statusCode = statusCode;
+  res.setHeader("Content-Type", MIME_TYPES[".html"]);
+  if (method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(html);
 }
 
 function parseCookies(header) {
@@ -465,6 +535,7 @@ export async function startServer({
   watch = false,
   quiet = false,
   presenterKey = null,
+  externalUrl = null,
 }) {
   const normalizedRootUrl = rootUrl ? normalizeBaseUrl(rootUrl) : null;
   if (!rootDir && !normalizedRootUrl) {
@@ -475,7 +546,12 @@ export async function startServer({
     rootUrl: normalizedRootUrl,
   });
   const sessionId = randomUUID();
-  let mergedConfig = { ...(presenterConfig ?? {}), sessionId };
+  let runtimeConfig = {};
+  if (externalUrl) {
+    runtimeConfig.externalUrl = externalUrl;
+  }
+  const buildMergedConfig = () => ({ ...(presenterConfig ?? {}), ...runtimeConfig, sessionId });
+  let mergedConfig = buildMergedConfig();
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const pathname = decodeURIComponent(requestUrl.pathname);
@@ -499,12 +575,71 @@ export async function startServer({
       if (pathname === "/_/presenter" || pathname === "/_/presenter/") {
         if (presenterKey && !isLocalRequest(req)) {
           const providedKey = requestUrl.searchParams.get("key");
+          const address = getRequestAddress(req) ?? "unknown";
+          const now = Date.now();
+          const existingEntry = presenterAuthAttempts.get(address);
+          if (existingEntry) {
+            if (existingEntry.resetAt <= now) {
+              presenterAuthAttempts.delete(address);
+            } else if (existingEntry.blockedUntil && existingEntry.blockedUntil > now) {
+              const retryAfter = existingEntry.blockedUntil - now;
+              res.setHeader("Retry-After", Math.ceil(retryAfter / 1000));
+              await sendPresenterAuthPage(res, {
+                statusCode: 429,
+                message: "Too many attempts.",
+                detail: `Try again in ${formatRetryAfter(retryAfter)}.`,
+                disabled: true,
+                level: "warn",
+                method,
+              });
+              return;
+            }
+          }
+
           if (providedKey !== presenterKey) {
-            res.statusCode = 401;
-            res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            res.end("Unauthorized\n");
+            if (providedKey) {
+              const { entry, key } = getPresenterAuthEntry(address, now);
+              entry.count += 1;
+              if (entry.count >= PRESENTER_AUTH_MAX_ATTEMPTS) {
+                entry.blockedUntil = now + PRESENTER_AUTH_BLOCK_MS;
+                presenterAuthAttempts.set(key, entry);
+                const retryAfter = entry.blockedUntil - now;
+                res.setHeader("Retry-After", Math.ceil(retryAfter / 1000));
+                await sendPresenterAuthPage(res, {
+                  statusCode: 429,
+                  message: "Too many attempts.",
+                  detail: `Try again in ${formatRetryAfter(retryAfter)}.`,
+                  disabled: true,
+                  level: "warn",
+                  method,
+                });
+                return;
+              }
+              presenterAuthAttempts.set(key, entry);
+              const remaining = Math.max(0, PRESENTER_AUTH_MAX_ATTEMPTS - entry.count);
+              await sendPresenterAuthPage(res, {
+                statusCode: 401,
+                message: "Invalid presenter PIN.",
+                detail: `Attempts remaining: ${remaining}.`,
+                disabled: false,
+                level: "error",
+                method,
+              });
+              return;
+            }
+
+            await sendPresenterAuthPage(res, {
+              statusCode: 401,
+              message: "Presenter PIN required.",
+              detail: "Enter the presenter PIN to continue.",
+              disabled: false,
+              level: "warn",
+              method,
+            });
             return;
           }
+
+          clearPresenterAuthEntry(address);
         }
         const filePath = path.join(CLIENT_DIR, "presenter.html");
         const html = await fs.readFile(filePath, "utf8");
@@ -624,7 +759,7 @@ export async function startServer({
 
         const { sessionId: _sessionId, ...rest } = payload;
         presenterConfig = rest;
-        mergedConfig = { ...rest, sessionId };
+        mergedConfig = buildMergedConfig();
 
         const configPath = path.join(rootDir, "presenter.json");
         try {
@@ -648,7 +783,11 @@ export async function startServer({
         }
         const protocol = req.socket.encrypted ? "https" : "http";
         const host = req.headers.host ?? "localhost";
-        const questionsUrl = new URL("/_/questions", `${protocol}://${host}`);
+        const baseUrl =
+          typeof runtimeConfig.externalUrl === "string" && runtimeConfig.externalUrl.trim()
+            ? runtimeConfig.externalUrl
+            : `${protocol}://${host}`;
+        const questionsUrl = new URL("/_/questions", baseUrl);
         const svg = renderQrSvg(questionsUrl.toString());
         res.statusCode = 200;
         res.setHeader("Content-Type", MIME_TYPES[".svg"]);
@@ -1058,6 +1197,19 @@ export async function startServer({
     config: mergedConfig,
     presenterKey,
   });
+
+  const setExternalUrl = (url) => {
+    const nextUrl = typeof url === "string" ? url.trim() : "";
+    if (nextUrl) {
+      runtimeConfig.externalUrl = nextUrl;
+    } else {
+      delete runtimeConfig.externalUrl;
+    }
+    mergedConfig = buildMergedConfig();
+    hub.updateConfig(mergedConfig);
+  };
+
+  server.setExternalUrl = setExternalUrl;
 
   if (watch && rootDir) {
     const watcher = watchDirectory(rootDir, () => {
