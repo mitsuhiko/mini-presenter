@@ -340,17 +340,15 @@
           </div>
           <div class="presenter__questions-actions">
             <button class="presenter__button presenter__button--tiny" id="questions-refresh" type="button">Refresh</button>
-            <button class="presenter__button presenter__button--tiny" id="questions-qr-toggle" type="button" aria-pressed="false">Show QR</button>
+            <button class="presenter__button presenter__button--tiny" id="questions-open-qr" type="button">Open QR page</button>
             <button class="presenter__button presenter__button--tiny" id="questions-close" type="button">Close</button>
           </div>
         </div>
         <div class="presenter__questions-body">
-          <div class="presenter__questions-qr" id="questions-qr" aria-hidden="true">
-            <div class="presenter__questions-qr-title">Ask at</div>
-            <div class="presenter__questions-qr-frame">
-              <img id="questions-qr-image" alt="QR code for questions" />
-            </div>
-            <div class="presenter__questions-qr-link" id="questions-link"></div>
+          <div class="presenter__questions-share">
+            <div class="presenter__questions-share-title">Share with attendees</div>
+            <a class="presenter__questions-link" id="questions-link" target="_blank" rel="noopener noreferrer"></a>
+            <a class="presenter__questions-link" id="questions-qr-link" target="_blank" rel="noopener noreferrer"></a>
           </div>
           <div class="presenter__questions-list" id="questions-list"></div>
         </div>

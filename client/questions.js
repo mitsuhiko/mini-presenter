@@ -7,7 +7,9 @@ const refreshButton = document.querySelector("#questions-refresh");
 const hint = document.querySelector("#questions-hint");
 
 const QUESTIONS_POLL_MS = 8000;
+const VOTE_STORAGE_KEY = "miniPresenterQuestionVotes";
 let pollTimer = null;
+let votedQuestions = new Set();
 
 function buildQuestionsApiUrl() {
   return new URL("/_/api/questions", window.location.origin);
@@ -15,6 +17,30 @@ function buildQuestionsApiUrl() {
 
 function buildVoteUrl() {
   return new URL("/_/api/questions/vote", window.location.origin);
+}
+
+function loadVoteState() {
+  try {
+    const raw = window.localStorage.getItem(VOTE_STORAGE_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((value) => typeof value === "string"));
+  } catch (error) {
+    return new Set();
+  }
+}
+
+function saveVoteState() {
+  try {
+    window.localStorage.setItem(VOTE_STORAGE_KEY, JSON.stringify([...votedQuestions]));
+  } catch (error) {
+    // ignore
+  }
 }
 
 function formatTime(isoString) {
@@ -87,11 +113,14 @@ function renderQuestions(questions) {
     const voteButton = document.createElement("button");
     voteButton.type = "button";
     voteButton.className = "question-card__vote";
-    voteButton.textContent = "Vote";
+    const hasVoted = votedQuestions.has(question.id);
+    voteButton.textContent = hasVoted ? "Voted" : "Vote";
+    voteButton.disabled = hasVoted;
     voteButton.addEventListener("click", () => {
       voteButton.disabled = true;
       submitVote(question.id).finally(() => {
-        voteButton.disabled = false;
+        voteButton.disabled = votedQuestions.has(question.id);
+        voteButton.textContent = votedQuestions.has(question.id) ? "Voted" : "Vote";
       });
     });
 
@@ -153,6 +182,11 @@ async function submitVote(id) {
   if (!response.ok) {
     return;
   }
+  const payload = await response.json().catch(() => null);
+  if (payload?.voted) {
+    votedQuestions.add(id);
+    saveVoteState();
+  }
   await fetchQuestions({ silent: true });
 }
 
@@ -194,5 +228,6 @@ refreshButton?.addEventListener("click", () => {
   fetchQuestions();
 });
 
+votedQuestions = loadVoteState();
 fetchQuestions({ silent: true });
 schedulePolling();

@@ -61,10 +61,9 @@ const questionsCountBadge = document.querySelector("#questions-count");
 const questionsOverlay = document.querySelector("#questions-overlay");
 const questionsCloseButton = document.querySelector("#questions-close");
 const questionsRefreshButton = document.querySelector("#questions-refresh");
-const questionsQrToggle = document.querySelector("#questions-qr-toggle");
-const questionsQr = document.querySelector("#questions-qr");
-const questionsQrImage = document.querySelector("#questions-qr-image");
+const questionsOpenQrButton = document.querySelector("#questions-open-qr");
 const questionsLink = document.querySelector("#questions-link");
+const questionsQrLink = document.querySelector("#questions-qr-link");
 const questionsList = document.querySelector("#questions-list");
 const questionsStatus = document.querySelector("#questions-status");
 
@@ -1106,12 +1105,20 @@ function buildQuestionsUrl() {
   return new URL("/_/questions", window.location.origin).toString();
 }
 
+function buildQuestionsQrPageUrl() {
+  return new URL("/_/questions/qr", window.location.origin).toString();
+}
+
 function buildQuestionsApiUrl() {
   return new URL("/_/api/questions", window.location.origin).toString();
 }
 
-function buildQuestionsQrUrl() {
-  return new URL("/_/api/questions/qr", window.location.origin).toString();
+function buildQuestionsDeleteUrl() {
+  const url = new URL("/_/api/questions/delete", window.location.origin);
+  if (presenterKey) {
+    url.searchParams.set("key", presenterKey);
+  }
+  return url.toString();
 }
 
 function setQuestionsAvailability(available) {
@@ -1133,24 +1140,16 @@ function setQuestionsOverlayOpen(open) {
   questionsOverlay.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
-function setQuestionsQrOpen(open) {
-  if (questionsQr) {
-    questionsQr.dataset.open = open ? "true" : "false";
-    questionsQr.setAttribute("aria-hidden", open ? "false" : "true");
-  }
-  if (questionsQrToggle) {
-    questionsQrToggle.setAttribute("aria-pressed", open ? "true" : "false");
-    questionsQrToggle.textContent = open ? "Hide QR" : "Show QR";
-  }
-}
-
-function updateQuestionsQr() {
+function updateQuestionsLinks() {
   const url = buildQuestionsUrl();
-  if (questionsQrImage) {
-    questionsQrImage.src = buildQuestionsQrUrl();
-  }
+  const qrUrl = buildQuestionsQrPageUrl();
   if (questionsLink) {
     questionsLink.textContent = url;
+    questionsLink.href = url;
+  }
+  if (questionsQrLink) {
+    questionsQrLink.textContent = qrUrl;
+    questionsQrLink.href = qrUrl;
   }
 }
 
@@ -1221,10 +1220,46 @@ function renderQuestionsList(questions) {
       content.appendChild(meta);
     }
 
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "presenter__button presenter__button--tiny";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", async () => {
+      if (!window.confirm("Delete this question?")) {
+        return;
+      }
+      deleteButton.disabled = true;
+      await deleteQuestion(question.id);
+      deleteButton.disabled = false;
+    });
+
     card.appendChild(votes);
     card.appendChild(content);
+    card.appendChild(deleteButton);
     questionsList.appendChild(card);
   });
+}
+
+async function deleteQuestion(id) {
+  if (!id) {
+    return;
+  }
+  try {
+    const response = await fetch(buildQuestionsDeleteUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(message || `Failed to delete question (${response.status})`);
+    }
+    await fetchQuestions({ silent: true });
+  } catch (error) {
+    if (questionsStatus) {
+      questionsStatus.textContent = error.message || "Failed to delete question.";
+    }
+  }
 }
 
 async function fetchQuestions({ silent = false } = {}) {
@@ -1276,8 +1311,7 @@ function openQuestionsOverlay() {
     return;
   }
   setQuestionsOverlayOpen(true);
-  updateQuestionsQr();
-  setQuestionsQrOpen(questionsQr?.dataset.open === "true");
+  updateQuestionsLinks();
   fetchQuestions();
 }
 
@@ -2732,9 +2766,9 @@ questionsRefreshButton?.addEventListener("click", () => {
   fetchQuestions();
 });
 
-questionsQrToggle?.addEventListener("click", () => {
-  const isOpen = questionsQr?.dataset.open === "true";
-  setQuestionsQrOpen(!isOpen);
+questionsOpenQrButton?.addEventListener("click", () => {
+  const url = buildQuestionsQrPageUrl();
+  window.open(url, "miniPresenterQuestionsQr", "width=720,height=720");
 });
 
 settingsJsonToggle?.addEventListener("click", () => {
@@ -2971,7 +3005,6 @@ setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 attachDrawingHandlers();
 syncToolControls();
 setActiveTool("none");
-setQuestionsQrOpen(false);
 fetchQuestions({ silent: true }).finally(() => {
   startQuestionsPolling();
 });

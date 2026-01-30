@@ -18,6 +18,7 @@ const CLIENT_DIR = path.resolve(
 const QUESTIONS_FILE_NAME = "questions.json";
 const QUESTIONS_LOCK_NAME = ".questions.lock";
 const QUESTION_TEXT_LIMIT = 500;
+const QUESTION_COOKIE_NAME = "miniPresenterQuestionToken";
 
 function normalizeBaseUrl(url) {
   const base = new URL(url);
@@ -87,6 +88,31 @@ async function sendQuestionsUnsupported(res) {
   res.statusCode = 501;
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.end("Questions are not available for remote decks\n");
+}
+
+function parseCookies(header) {
+  if (!header) {
+    return {};
+  }
+  const cookies = {};
+  header.split(";").forEach((part) => {
+    const [name, ...rest] = part.trim().split("=");
+    if (!name) {
+      return;
+    }
+    cookies[name] = decodeURIComponent(rest.join("=") || "");
+  });
+  return cookies;
+}
+
+function getQuestionToken(req) {
+  const cookies = parseCookies(req.headers?.cookie);
+  const token = cookies[QUESTION_COOKIE_NAME];
+  return token && typeof token === "string" ? token : null;
+}
+
+function buildQuestionCookie(token) {
+  return `${QUESTION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
 }
 
 function buildRemoteUrl(baseUrl, pathname, search) {
@@ -288,6 +314,9 @@ function normalizeQuestionsData(payload) {
       const votes = Number.isFinite(entry.votes) ? entry.votes : 0;
       const createdAt = typeof entry.createdAt === "string" ? entry.createdAt : null;
       const updatedAt = typeof entry.updatedAt === "string" ? entry.updatedAt : null;
+      const voters = Array.isArray(entry.voters)
+        ? entry.voters.filter((value) => typeof value === "string")
+        : [];
       if (!id || !text) {
         return null;
       }
@@ -295,12 +324,26 @@ function normalizeQuestionsData(payload) {
         id,
         text,
         votes: Math.max(0, Math.floor(votes)),
+        voters,
         createdAt: createdAt ?? new Date().toISOString(),
         updatedAt: updatedAt ?? createdAt ?? new Date().toISOString(),
       };
     })
     .filter(Boolean);
   return { version: 1, questions: normalized };
+}
+
+function stripQuestionVoters(questions) {
+  if (!Array.isArray(questions)) {
+    return [];
+  }
+  return questions.map((question) => {
+    if (!question || typeof question !== "object") {
+      return question;
+    }
+    const { voters: _voters, ...rest } = question;
+    return rest;
+  });
 }
 
 async function readQuestionsFile(filePath) {
@@ -439,7 +482,8 @@ export async function startServer({
       pathname === "/_/api/config" && (method === "PUT" || method === "POST");
     const isQuestionsUpdate =
       (pathname === "/_/api/questions" && method === "POST") ||
-      (pathname === "/_/api/questions/vote" && method === "POST");
+      (pathname === "/_/api/questions/vote" && method === "POST") ||
+      (pathname === "/_/api/questions/delete" && method === "POST");
 
     if (method !== "GET" && method !== "HEAD" && !isConfigUpdate && !isQuestionsUpdate) {
       res.statusCode = 405;
@@ -472,7 +516,33 @@ export async function startServer({
       }
 
       if (pathname === "/_/questions" || pathname === "/_/questions/") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
+        let token = getQuestionToken(req);
+        if (!token) {
+          token = randomUUID();
+          res.setHeader("Set-Cookie", buildQuestionCookie(token));
+        }
         const filePath = path.join(CLIENT_DIR, "questions.html");
+        const html = await fs.readFile(filePath, "utf8");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", MIME_TYPES[".html"]);
+        if (req.method === "HEAD") {
+          res.end();
+          return;
+        }
+        res.end(html);
+        return;
+      }
+
+      if (pathname === "/_/questions/qr" || pathname === "/_/questions/qr/") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
+        const filePath = path.join(CLIENT_DIR, "questions-qr.html");
         const html = await fs.readFile(filePath, "utf8");
         res.statusCode = 200;
         res.setHeader("Content-Type", MIME_TYPES[".html"]);
@@ -569,6 +639,10 @@ export async function startServer({
       }
 
       if (pathname === "/_/api/questions/qr") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
         const protocol = req.socket.encrypted ? "https" : "http";
         const host = req.headers.host ?? "localhost";
         const questionsUrl = new URL("/_/questions", `${protocol}://${host}`);
@@ -587,7 +661,7 @@ export async function startServer({
 
         if (req.method === "GET" || req.method === "HEAD") {
           const data = await readQuestionsFile(getQuestionsPaths(rootDir).filePath);
-          sendJson(res, { questions: data.questions }, req.method);
+          sendJson(res, { questions: stripQuestionVoters(data.questions) }, req.method);
           return;
         }
 
@@ -622,13 +696,14 @@ export async function startServer({
               id: randomUUID(),
               text,
               votes: 0,
+              voters: [],
               createdAt: now,
               updatedAt: now,
             };
             data.questions.push(entry);
             return entry;
           });
-          sendJson(res, { ok: true, question }, req.method);
+          sendJson(res, { ok: true, question: stripQuestionVoters([question])[0] }, req.method);
           return;
         } catch (error) {
           res.statusCode = 500;
@@ -641,6 +716,14 @@ export async function startServer({
       if (pathname === "/_/api/questions/vote") {
         if (!rootDir || normalizedRootUrl) {
           await sendQuestionsUnsupported(res);
+          return;
+        }
+
+        const token = getQuestionToken(req);
+        if (!token) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Missing voting token\n");
           return;
         }
 
@@ -663,29 +746,104 @@ export async function startServer({
         }
 
         try {
-          const question = await updateQuestions(rootDir, (data) => {
+          const result = await updateQuestions(rootDir, (data) => {
             const entry = data.questions.find((item) => item.id === id);
             if (!entry) {
               return null;
             }
+            if (!Array.isArray(entry.voters)) {
+              entry.voters = [];
+            }
+            if (entry.voters.includes(token)) {
+              return { entry, voted: false };
+            }
+            entry.voters.push(token);
             entry.votes = Math.max(0, Math.floor(Number(entry.votes ?? 0))) + 1;
             entry.updatedAt = new Date().toISOString();
-            return entry;
+            return { entry, voted: true };
           });
 
-          if (!question) {
+          if (!result) {
             res.statusCode = 404;
             res.setHeader("Content-Type", "text/plain; charset=utf-8");
             res.end("Question not found\n");
             return;
           }
 
-          sendJson(res, { ok: true, question }, req.method);
+          sendJson(res, { ok: true, voted: result.voted, question: stripQuestionVoters([result.entry])[0] }, req.method);
           return;
         } catch (error) {
           res.statusCode = 500;
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
           res.end("Failed to store vote\n");
+          return;
+        }
+      }
+
+      if (pathname === "/_/api/questions/delete") {
+        if (!rootDir || normalizedRootUrl) {
+          await sendQuestionsUnsupported(res);
+          return;
+        }
+
+        if (!isLocalRequest(req)) {
+          if (presenterKey) {
+            const providedKey = requestUrl.searchParams.get("key");
+            if (providedKey !== presenterKey) {
+              res.statusCode = 401;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Unauthorized\n");
+              return;
+            }
+          } else {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Forbidden\n");
+            return;
+          }
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid JSON\n");
+          return;
+        }
+
+        const id = typeof payload?.id === "string" ? payload.id : null;
+        if (!id) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Question id is required\n");
+          return;
+        }
+
+        try {
+          const removed = await updateQuestions(rootDir, (data) => {
+            const index = data.questions.findIndex((item) => item.id === id);
+            if (index === -1) {
+              return null;
+            }
+            const [entry] = data.questions.splice(index, 1);
+            return entry;
+          });
+
+          if (!removed) {
+            res.statusCode = 404;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Question not found\n");
+            return;
+          }
+
+          sendJson(res, { ok: true }, req.method);
+          return;
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to delete question\n");
           return;
         }
       }

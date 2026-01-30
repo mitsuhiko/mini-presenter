@@ -19,6 +19,7 @@
   const DEFAULT_SHORTCUTS = {
     fullscreen: ["f"],
     presenter: ["p"],
+    questions: ["q"],
   };
 
   let ws = null;
@@ -28,6 +29,7 @@
   let lastReported = { slideId: null, hash: null, notes: null, viewport: null };
   let shortcutConfig = { ...DEFAULT_SHORTCUTS };
   let drawingOverlay = null;
+  let questionsOverlay = null;
 
   function markPresenterPreview() {
     if (!window.miniPresenter ||
@@ -194,6 +196,7 @@
     shortcutConfig = {
       fullscreen: normalizeShortcutList(shortcuts.fullscreen, DEFAULT_SHORTCUTS.fullscreen),
       presenter: normalizeShortcutList(shortcuts.presenter, DEFAULT_SHORTCUTS.presenter),
+      questions: normalizeShortcutList(shortcuts.questions, DEFAULT_SHORTCUTS.questions),
     };
   }
 
@@ -295,6 +298,11 @@
         return "presenter";
       }
     }
+    for (const shortcut of shortcutConfig.questions ?? []) {
+      if (matchesShortcut(event, shortcut)) {
+        return "questions";
+      }
+    }
     return null;
   }
 
@@ -367,12 +375,113 @@
     }
     if (action === "presenter") {
       openPresenterView();
+      return;
+    }
+    if (action === "questions") {
+      questionsOverlay?.toggle();
     }
   }
 
   function openPresenterView() {
     const url = new URL("/_/presenter", location.origin);
     window.open(url.href, "miniPresenterView", "width=1000,height=700");
+  }
+
+  function createQuestionsOverlay() {
+    const questionsUrl = new URL("/_/questions", location.origin).toString();
+    const qrPageUrl = new URL("/_/questions/qr", location.origin).toString();
+
+    const overlay = document.createElement("div");
+    overlay.id = "mini-presenter-questions";
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background: rgba(0, 0, 0, 0.65);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 2147483647;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+
+    const card = document.createElement("div");
+    card.style.cssText = `
+      background: rgba(255, 255, 255, 0.92);
+      color: #1b1b1b;
+      border-radius: 20px;
+      padding: 2rem 2.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      max-width: min(80vw, 520px);
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+      text-align: center;
+    `;
+
+    const title = document.createElement("div");
+    title.textContent = "Ask a question";
+    title.style.cssText = "font-size: 2rem; font-weight: 700;";
+
+    const img = document.createElement("img");
+    img.src = "/_/api/questions/qr";
+    img.alt = "QR code for questions";
+    img.style.cssText = "width: min(60vw, 280px); height: auto; border-radius: 16px; border: 4px solid #f3f3f3; background: #fff; padding: 12px;";
+
+    const link = document.createElement("div");
+    link.textContent = questionsUrl;
+    link.style.cssText = "font-size: 1.1rem; font-weight: 600;";
+
+    const qrLink = document.createElement("a");
+    qrLink.href = qrPageUrl;
+    qrLink.textContent = "Open QR page";
+    qrLink.target = "_blank";
+    qrLink.rel = "noopener noreferrer";
+    qrLink.style.cssText = "font-size: 0.95rem; color: #234c7a;";
+
+    const hint = document.createElement("div");
+    hint.textContent = "Press Q to hide";
+    hint.style.cssText = "font-size: 0.85rem; color: #4b4b4b;";
+
+    card.appendChild(title);
+    card.appendChild(img);
+    card.appendChild(link);
+    card.appendChild(qrLink);
+    card.appendChild(hint);
+    overlay.appendChild(card);
+
+    const setOpen = (open) => {
+      overlay.style.opacity = open ? "1" : "0";
+      overlay.style.pointerEvents = open ? "auto" : "none";
+      overlay.dataset.open = open ? "true" : "false";
+    };
+
+    const toggle = () => {
+      const open = overlay.dataset.open === "true";
+      setOpen(!open);
+    };
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        setOpen(false);
+      }
+    });
+
+    if (document.body) {
+      document.body.appendChild(overlay);
+    } else {
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.appendChild(overlay);
+      });
+    }
+
+    setOpen(false);
+
+    return { toggle, close: () => setOpen(false) };
   }
 
   function createControlOverlay() {
@@ -807,6 +916,7 @@
 
   loadSessionId().finally(() => {
     drawingOverlay = createDrawingOverlay();
+    questionsOverlay = createQuestionsOverlay();
     connect();
     createControlOverlay();
   });
