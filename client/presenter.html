@@ -143,8 +143,10 @@
             <button class="presenter__button presenter__button--compact" id="export-pdf" type="button">
               Export PDF
             </button>
+            <button class="presenter__button presenter__button--compact" id="settings-toggle" type="button">
+              Settings
+            </button>
           </div>
-          </section>
         </div>
       </section>
 
@@ -157,6 +159,108 @@
         </div>
       </section>
     </main>
+
+    <div class="presenter__settings-overlay" id="settings-overlay" aria-hidden="true">
+      <div class="presenter__settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="presenter__settings-header">
+          <div>
+            <div class="presenter__settings-title" id="settings-title">Presenter settings</div>
+            <div class="presenter__settings-subtitle">
+              <span id="settings-file">presenter.json</span>
+              <span class="presenter__settings-dirty" id="settings-dirty" aria-hidden="true">*</span>
+              <span class="presenter__settings-status" id="settings-status"></span>
+            </div>
+          </div>
+          <div class="presenter__settings-actions">
+            <button class="presenter__button presenter__button--tiny" id="settings-save" type="button">Save</button>
+            <button class="presenter__button presenter__button--tiny presenter__settings-toggle" id="settings-json-toggle" type="button" aria-pressed="false">Show JSON</button>
+            <button class="presenter__button presenter__button--tiny" id="settings-close" type="button">Close</button>
+          </div>
+        </div>
+
+        <div class="presenter__settings-body">
+          <div class="presenter__settings-view" data-settings-view="ui" data-active="true">
+            <div class="presenter__settings-grid">
+              <div class="presenter__settings-label">Title</div>
+              <div class="presenter__settings-control">
+                <input class="presenter__settings-input" id="settings-title-input" type="text" placeholder="Presentation title" />
+                <div class="presenter__settings-hint">Shown in the presenter header and browser title.</div>
+              </div>
+
+              <div class="presenter__settings-label">Keyboard</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid">
+                  <label class="presenter__settings-subrow">
+                    <span>Next</span>
+                    <input class="presenter__settings-input" id="settings-key-next" type="text" placeholder="ArrowRight, Space" />
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Prev</span>
+                    <input class="presenter__settings-input" id="settings-key-prev" type="text" placeholder="ArrowLeft" />
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>First</span>
+                    <input class="presenter__settings-input" id="settings-key-first" type="text" placeholder="Home" />
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Last</span>
+                    <input class="presenter__settings-input" id="settings-key-last" type="text" placeholder="End" />
+                  </label>
+                </div>
+                <div class="presenter__settings-hint">Comma-separated key names. Clear a row to use defaults.</div>
+              </div>
+
+              <div class="presenter__settings-label">Notes</div>
+              <div class="presenter__settings-control">
+                <select class="presenter__settings-select" id="settings-notes-source">
+                  <option value="auto">Auto (API → files)</option>
+                  <option value="api">API only</option>
+                  <option value="files">Files only</option>
+                  <option value="none">Disabled</option>
+                </select>
+                <div class="presenter__settings-hint">Controls how speaker notes are loaded.</div>
+              </div>
+
+              <div class="presenter__settings-label">Next preview</div>
+              <div class="presenter__settings-control presenter__settings-toggle">
+                <label>
+                  <input type="checkbox" id="settings-preview-relative" />
+                  Resolve relative hashes (e.g., <code>#slide~next</code>).
+                </label>
+              </div>
+
+              <div class="presenter__settings-label">Timer</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid presenter__settings-subgrid--timer">
+                  <label class="presenter__settings-subrow">
+                    <span>Mode</span>
+                    <select class="presenter__settings-select" id="settings-timer-mode">
+                      <option value="countup">Count up</option>
+                      <option value="countdown">Count down</option>
+                    </select>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Minutes</span>
+                    <input class="presenter__settings-input" id="settings-timer-minutes" type="number" min="0" step="1" placeholder="30" />
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Seconds</span>
+                    <input class="presenter__settings-input" id="settings-timer-seconds" type="number" min="0" step="1" placeholder="1800" />
+                  </label>
+                </div>
+                <div class="presenter__settings-hint">Countdown starts after the first slide or via the timer button.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="presenter__settings-view" data-settings-view="json">
+            <textarea class="presenter__settings-json" id="settings-json" spellcheck="false"></textarea>
+            <div class="presenter__settings-json-status" id="settings-json-status"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="/_/client/presenter.js" type="module"></script>
   </body>
 </html>

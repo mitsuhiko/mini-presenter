@@ -26,6 +26,28 @@ const resetConfirmButton = document.querySelector("#reset-confirm");
 const resetCancelButton = document.querySelector("#reset-cancel");
 const resetPopover = document.querySelector("#reset-popover");
 const exportButton = document.querySelector("#export-pdf");
+const settingsButton = document.querySelector("#settings-toggle");
+const settingsOverlay = document.querySelector("#settings-overlay");
+const settingsPanel = document.querySelector("#settings-panel");
+const settingsCloseButton = document.querySelector("#settings-close");
+const settingsSaveButton = document.querySelector("#settings-save");
+const settingsFileLabel = document.querySelector("#settings-file");
+const settingsDirtyIndicator = document.querySelector("#settings-dirty");
+const settingsStatus = document.querySelector("#settings-status");
+const settingsJsonToggle = document.querySelector("#settings-json-toggle");
+const settingsViews = document.querySelectorAll("[data-settings-view]");
+const settingsTitleInput = document.querySelector("#settings-title-input");
+const settingsKeyNext = document.querySelector("#settings-key-next");
+const settingsKeyPrev = document.querySelector("#settings-key-prev");
+const settingsKeyFirst = document.querySelector("#settings-key-first");
+const settingsKeyLast = document.querySelector("#settings-key-last");
+const settingsNotesSource = document.querySelector("#settings-notes-source");
+const settingsPreviewRelative = document.querySelector("#settings-preview-relative");
+const settingsTimerMode = document.querySelector("#settings-timer-mode");
+const settingsTimerMinutes = document.querySelector("#settings-timer-minutes");
+const settingsTimerSeconds = document.querySelector("#settings-timer-seconds");
+const settingsJson = document.querySelector("#settings-json");
+const settingsJsonStatus = document.querySelector("#settings-json-status");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
@@ -55,6 +77,14 @@ function buildExportUrl(format) {
   if (format) {
     url.searchParams.set("format", format);
   }
+  if (presenterKey) {
+    url.searchParams.set("key", presenterKey);
+  }
+  return url.toString();
+}
+
+function buildConfigUrl() {
+  const url = new URL("/_/api/config", window.location.origin);
   if (presenterKey) {
     url.searchParams.set("key", presenterKey);
   }
@@ -106,6 +136,58 @@ function getPresenterKey() {
   return trimmedKey;
 }
 
+function cloneConfig(value) {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sanitizeConfig(config) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return {};
+  }
+  const { sessionId: _sessionId, ...rest } = config;
+  return cloneConfig(rest);
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function configsEqual(a, b) {
+  return stableStringify(a) === stableStringify(b);
+}
+
+function parseKeyList(value) {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => (item.toLowerCase() === "space" ? " " : item));
+}
+
+function formatKeyList(keys) {
+  if (!Array.isArray(keys)) {
+    return "";
+  }
+  return keys
+    .map((item) => (item === " " ? "Space" : item))
+    .join(", ");
+}
+
 let ws = null;
 let reconnectTimer = null;
 let timerInterval = null;
@@ -150,6 +232,13 @@ let lastLaserSent = 0;
 let lastDrawSent = 0;
 let laserFadeTimer = null;
 let previewResizeObserver = null;
+let savedConfig = {};
+let draftConfig = {};
+let settingsDirty = false;
+let settingsView = "ui";
+let jsonIsValid = true;
+let jsonEditing = false;
+let settingsPanelHeight = null;
 
 function getWebSocketUrl() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -242,12 +331,17 @@ function applyConfig(config) {
   sessionId = typeof config?.sessionId === "string" ? config.sessionId : null;
 
   const timerConfig = config?.timer ?? {};
-  timerMode = timerConfig?.mode === "countdown" ? "countdown" : "countup";
-  countdownDuration = resolveCountdownDuration(timerConfig);
-  countdownStartSlide = null;
-  timerElapsed = 0;
-  timerRunning = false;
-  timerStarted = false;
+  const nextTimerMode = timerConfig?.mode === "countdown" ? "countdown" : "countup";
+  const nextCountdownDuration = resolveCountdownDuration(timerConfig);
+  const timerChanged = nextTimerMode !== timerMode || nextCountdownDuration !== countdownDuration;
+  timerMode = nextTimerMode;
+  countdownDuration = nextCountdownDuration;
+  if (timerChanged) {
+    countdownStartSlide = null;
+    timerElapsed = 0;
+    timerRunning = false;
+    timerStarted = false;
+  }
   updateTimerDisplay();
   updateTimerToggleLabel();
 
@@ -255,6 +349,285 @@ function applyConfig(config) {
     updateNotes({ slideId: lastSlideId, hash: lastKnownHash });
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
   }
+}
+
+function updateSettingsDirtyState() {
+  settingsDirty = !configsEqual(draftConfig, savedConfig);
+  if (settingsDirtyIndicator) {
+    settingsDirtyIndicator.dataset.visible = settingsDirty ? "true" : "false";
+  }
+  if (settingsSaveButton) {
+    settingsSaveButton.disabled = !settingsDirty || !jsonIsValid;
+  }
+}
+
+function syncSettingsForm() {
+  if (settingsTitleInput) {
+    settingsTitleInput.value = typeof draftConfig.title === "string" ? draftConfig.title : "";
+  }
+
+  const keyboard = draftConfig.keyboard ?? {};
+  if (settingsKeyNext) {
+    settingsKeyNext.value = formatKeyList(keyboard.next ?? DEFAULT_KEYBOARD.next);
+  }
+  if (settingsKeyPrev) {
+    settingsKeyPrev.value = formatKeyList(keyboard.prev ?? DEFAULT_KEYBOARD.prev);
+  }
+  if (settingsKeyFirst) {
+    settingsKeyFirst.value = formatKeyList(keyboard.first ?? DEFAULT_KEYBOARD.first);
+  }
+  if (settingsKeyLast) {
+    settingsKeyLast.value = formatKeyList(keyboard.last ?? DEFAULT_KEYBOARD.last);
+  }
+
+  if (settingsNotesSource) {
+    const source = draftConfig.notes?.source;
+    settingsNotesSource.value =
+      source === "api" || source === "files" || source === "none" ? source : "auto";
+  }
+
+  if (settingsPreviewRelative) {
+    const previewConfig = draftConfig.preview ?? draftConfig.previews ?? {};
+    settingsPreviewRelative.checked = previewConfig?.relativeHash === true;
+  }
+
+  const timerConfig = draftConfig.timer ?? {};
+  if (settingsTimerMode) {
+    settingsTimerMode.value = timerConfig?.mode === "countdown" ? "countdown" : "countup";
+  }
+  if (settingsTimerMinutes) {
+    const minutes = Number(timerConfig?.durationMinutes);
+    settingsTimerMinutes.value = Number.isFinite(minutes) && minutes > 0 ? String(minutes) : "";
+  }
+  if (settingsTimerSeconds) {
+    const secondsValue = timerConfig?.durationSeconds ?? timerConfig?.duration;
+    const seconds = Number(secondsValue);
+    settingsTimerSeconds.value = Number.isFinite(seconds) && seconds > 0 ? String(seconds) : "";
+  }
+}
+
+function setJsonValidity(isValid, message = "") {
+  jsonIsValid = isValid;
+  if (settingsJson) {
+    settingsJson.classList.toggle("presenter__settings-json--invalid", !isValid);
+  }
+  if (settingsJsonStatus) {
+    settingsJsonStatus.textContent = isValid ? "" : message || "Invalid JSON";
+    settingsJsonStatus.dataset.invalid = isValid ? "false" : "true";
+  }
+  updateSettingsDirtyState();
+}
+
+function syncSettingsJson({ force = false } = {}) {
+  if (!settingsJson) {
+    return;
+  }
+  if (!force) {
+    if (jsonEditing || !jsonIsValid) {
+      return;
+    }
+  }
+  settingsJson.value = JSON.stringify(draftConfig, null, 2);
+  if (force) {
+    setJsonValidity(true);
+  }
+}
+
+function applyDraftConfig({ source } = {}) {
+  applyConfig({ ...draftConfig, sessionId });
+  if (source === "json") {
+    syncSettingsForm();
+  } else {
+    syncSettingsJson();
+  }
+  updateSettingsDirtyState();
+}
+
+function updateDraftConfig(mutator, { source = "form" } = {}) {
+  const nextConfig = cloneConfig(draftConfig);
+  mutator(nextConfig);
+  draftConfig = nextConfig;
+  if (settingsStatus) {
+    settingsStatus.textContent = "";
+  }
+  applyDraftConfig({ source });
+}
+
+function parsePositiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function updateKeyboardConfig(nextConfig, action, value) {
+  const keys = parseKeyList(value);
+  const keyboard =
+    nextConfig.keyboard && typeof nextConfig.keyboard === "object"
+      ? { ...nextConfig.keyboard }
+      : {};
+  if (keys.length > 0) {
+    keyboard[action] = keys;
+  } else {
+    delete keyboard[action];
+  }
+  if (Object.keys(keyboard).length > 0) {
+    nextConfig.keyboard = keyboard;
+  } else {
+    delete nextConfig.keyboard;
+  }
+}
+
+function updateNotesConfig(nextConfig, value) {
+  const source = value === "api" || value === "files" || value === "none" ? value : null;
+  const notes =
+    nextConfig.notes && typeof nextConfig.notes === "object" ? { ...nextConfig.notes } : {};
+  if (source) {
+    notes.source = source;
+  } else {
+    delete notes.source;
+  }
+  if (Object.keys(notes).length > 0) {
+    nextConfig.notes = notes;
+  } else {
+    delete nextConfig.notes;
+  }
+}
+
+function updatePreviewConfig(nextConfig, enabled) {
+  const preview =
+    nextConfig.preview && typeof nextConfig.preview === "object"
+      ? { ...nextConfig.preview }
+      : nextConfig.previews && typeof nextConfig.previews === "object"
+        ? { ...nextConfig.previews }
+        : {};
+  if (enabled) {
+    preview.relativeHash = true;
+  } else {
+    delete preview.relativeHash;
+  }
+  if (Object.keys(preview).length > 0) {
+    nextConfig.preview = preview;
+    delete nextConfig.previews;
+  } else {
+    delete nextConfig.preview;
+    delete nextConfig.previews;
+  }
+}
+
+function updateTimerConfig(nextConfig) {
+  const timer = nextConfig.timer && typeof nextConfig.timer === "object" ? { ...nextConfig.timer } : {};
+  const mode = settingsTimerMode?.value === "countdown" ? "countdown" : "countup";
+  if (mode === "countdown") {
+    timer.mode = "countdown";
+  } else {
+    delete timer.mode;
+  }
+
+  const minutes = parsePositiveNumber(settingsTimerMinutes?.value);
+  if (minutes) {
+    timer.durationMinutes = minutes;
+  } else {
+    delete timer.durationMinutes;
+  }
+
+  const seconds = parsePositiveNumber(settingsTimerSeconds?.value);
+  if (seconds) {
+    timer.durationSeconds = seconds;
+    delete timer.duration;
+  } else {
+    delete timer.durationSeconds;
+    delete timer.duration;
+  }
+
+  if (Object.keys(timer).length > 0) {
+    nextConfig.timer = timer;
+  } else {
+    delete nextConfig.timer;
+  }
+}
+
+function handleConfigUpdate(config, { force = false } = {}) {
+  const sanitized = sanitizeConfig(config);
+  const shouldSyncDraft = force || !settingsDirty || configsEqual(draftConfig, sanitized);
+  savedConfig = sanitized;
+  if (shouldSyncDraft) {
+    draftConfig = cloneConfig(sanitized);
+    syncSettingsForm();
+    syncSettingsJson({ force: jsonIsValid });
+  }
+  applyConfig(config ?? {});
+  updateSettingsDirtyState();
+}
+
+function setSettingsView(nextView) {
+  settingsView = nextView;
+  settingsViews.forEach((view) => {
+    const isActive = view.dataset.settingsView === nextView;
+    view.dataset.active = isActive ? "true" : "false";
+  });
+  if (settingsJsonToggle) {
+    const isJson = nextView === "json";
+    settingsJsonToggle.setAttribute("aria-pressed", isJson ? "true" : "false");
+    settingsJsonToggle.textContent = isJson ? "Hide JSON" : "Show JSON";
+  }
+  if (settingsPanelHeight && settingsPanel) {
+    settingsPanel.style.height = `${settingsPanelHeight}px`;
+  }
+  if (nextView === "json") {
+    syncSettingsJson({ force: jsonIsValid });
+    settingsJson?.focus();
+  } else {
+    jsonEditing = false;
+    syncSettingsForm();
+  }
+}
+
+function lockSettingsPanelHeight() {
+  if (!settingsPanel) {
+    return;
+  }
+  if (!settingsPanelHeight) {
+    settingsPanelHeight = settingsPanel.getBoundingClientRect().height;
+  }
+  if (settingsPanelHeight) {
+    settingsPanel.style.height = `${settingsPanelHeight}px`;
+  }
+}
+
+function clearSettingsPanelHeight() {
+  if (!settingsPanel) {
+    return;
+  }
+  settingsPanel.style.height = "";
+  settingsPanelHeight = null;
+}
+
+function openSettings() {
+  if (!settingsOverlay) {
+    return;
+  }
+  settingsOverlay.dataset.open = "true";
+  settingsOverlay.setAttribute("aria-hidden", "false");
+  if (settingsStatus) {
+    settingsStatus.textContent = "";
+  }
+  clearSettingsPanelHeight();
+  syncSettingsForm();
+  syncSettingsJson({ force: jsonIsValid });
+  setSettingsView(settingsView || "ui");
+  updateSettingsDirtyState();
+  requestAnimationFrame(() => {
+    lockSettingsPanelHeight();
+  });
+}
+
+function closeSettings() {
+  if (!settingsOverlay) {
+    return;
+  }
+  settingsOverlay.dataset.open = "false";
+  settingsOverlay.setAttribute("aria-hidden", "true");
+  jsonEditing = false;
+  clearSettingsPanelHeight();
 }
 
 keyboardMap = buildKeyboardMap(DEFAULT_KEYBOARD);
@@ -1333,7 +1706,7 @@ function handleMessage(event) {
   }
 
   if (message.type === "config") {
-    applyConfig(message.config ?? {});
+    handleConfigUpdate(message.config ?? {});
     return;
   }
 
@@ -1414,6 +1787,9 @@ function handleKeyboard(event) {
   if (event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
+  if (settingsOverlay?.dataset.open === "true") {
+    return;
+  }
   const target = event.target;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
     return;
@@ -1443,6 +1819,45 @@ function handleKeyboard(event) {
       break;
     default:
       break;
+  }
+}
+
+async function handleSaveConfig() {
+  if (!settingsSaveButton || settingsSaveButton.disabled) {
+    return;
+  }
+
+  if (settingsStatus) {
+    settingsStatus.textContent = "Saving…";
+  }
+  settingsSaveButton.disabled = true;
+
+  try {
+    const response = await fetch(buildConfigUrl(), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draftConfig, null, 2),
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(message || `Save failed (${response.status})`);
+    }
+    const payload = await response.json().catch(() => null);
+    if (payload?.config) {
+      handleConfigUpdate(payload.config, { force: true });
+    } else {
+      savedConfig = cloneConfig(draftConfig);
+      updateSettingsDirtyState();
+    }
+    if (settingsStatus) {
+      settingsStatus.textContent = "Saved.";
+    }
+  } catch (error) {
+    if (settingsStatus) {
+      settingsStatus.textContent = error.message || "Save failed.";
+    }
+  } finally {
+    updateSettingsDirtyState();
   }
 }
 
@@ -1533,6 +1948,123 @@ exportButton?.addEventListener("click", () => {
   handleExportPdf();
 });
 
+settingsButton?.addEventListener("click", () => {
+  openSettings();
+});
+
+settingsSaveButton?.addEventListener("click", () => {
+  handleSaveConfig();
+});
+
+settingsCloseButton?.addEventListener("click", () => {
+  closeSettings();
+});
+
+settingsOverlay?.addEventListener("click", (event) => {
+  if (event.target === settingsOverlay) {
+    closeSettings();
+  }
+});
+
+settingsJsonToggle?.addEventListener("click", () => {
+  const nextView = settingsView === "json" ? "ui" : "json";
+  setSettingsView(nextView);
+});
+
+settingsTitleInput?.addEventListener("input", () => {
+  const value = settingsTitleInput.value.trim();
+  updateDraftConfig((nextConfig) => {
+    if (value) {
+      nextConfig.title = value;
+    } else {
+      delete nextConfig.title;
+    }
+  });
+});
+
+settingsKeyNext?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateKeyboardConfig(nextConfig, "next", settingsKeyNext.value);
+  });
+});
+
+settingsKeyPrev?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateKeyboardConfig(nextConfig, "prev", settingsKeyPrev.value);
+  });
+});
+
+settingsKeyFirst?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateKeyboardConfig(nextConfig, "first", settingsKeyFirst.value);
+  });
+});
+
+settingsKeyLast?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateKeyboardConfig(nextConfig, "last", settingsKeyLast.value);
+  });
+});
+
+settingsNotesSource?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateNotesConfig(nextConfig, settingsNotesSource.value);
+  });
+});
+
+settingsPreviewRelative?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updatePreviewConfig(nextConfig, settingsPreviewRelative.checked);
+  });
+});
+
+settingsTimerMode?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateTimerConfig(nextConfig);
+  });
+});
+
+settingsTimerMinutes?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateTimerConfig(nextConfig);
+  });
+});
+
+settingsTimerSeconds?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateTimerConfig(nextConfig);
+  });
+});
+
+settingsJson?.addEventListener("focus", () => {
+  jsonEditing = true;
+});
+
+settingsJson?.addEventListener("blur", () => {
+  jsonEditing = false;
+  if (jsonIsValid) {
+    syncSettingsJson({ force: true });
+  }
+});
+
+settingsJson?.addEventListener("input", () => {
+  const raw = settingsJson.value.trim();
+  if (settingsStatus) {
+    settingsStatus.textContent = "";
+  }
+  try {
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Config must be an object");
+    }
+    setJsonValidity(true);
+    draftConfig = sanitizeConfig(parsed);
+    applyDraftConfig({ source: "json" });
+  } catch (error) {
+    setJsonValidity(false, error.message || "Invalid JSON");
+  }
+});
+
 if (clearToggleButton) {
   clearToggleButton.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1584,6 +2116,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeClearPopover();
     closeResetPopover();
+    closeSettings();
   }
 });
 

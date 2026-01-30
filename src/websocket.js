@@ -115,6 +115,14 @@ class Hub {
     this.sendSync();
   }
 
+  updateConfig(config) {
+    this.config = config ?? {};
+    if (typeof config?.sessionId === "string") {
+      this.sessionId = config.sessionId;
+    }
+    this.broadcast(this.presenters, { type: "config", config: this.config ?? {} });
+  }
+
   sendSync() {
     const message = {
       type: "sync",

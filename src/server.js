@@ -157,6 +157,18 @@ function sendJson(res, payload, method = "GET") {
   res.end(JSON.stringify(payload));
 }
 
+async function readJsonBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) {
+    return null;
+  }
+  return JSON.parse(raw);
+}
+
 async function loadPresenterConfig({ rootDir, rootUrl }) {
   if (rootUrl) {
     const configUrl = new URL("presenter.json", rootUrl);
@@ -255,22 +267,25 @@ export async function startServer({
   if (!rootDir && !normalizedRootUrl) {
     throw new Error("No presentation source provided");
   }
-  const presenterConfig = await loadPresenterConfig({
+  let presenterConfig = await loadPresenterConfig({
     rootDir,
     rootUrl: normalizedRootUrl,
   });
   const sessionId = randomUUID();
-  const mergedConfig = { ...(presenterConfig ?? {}), sessionId };
+  let mergedConfig = { ...(presenterConfig ?? {}), sessionId };
   const server = http.createServer(async (req, res) => {
-    if (req.method !== "GET" && req.method !== "HEAD") {
+    const requestUrl = new URL(req.url, "http://localhost");
+    const pathname = decodeURIComponent(requestUrl.pathname);
+    const method = req.method || "GET";
+    const isConfigUpdate =
+      pathname === "/_/api/config" && (method === "PUT" || method === "POST");
+
+    if (method !== "GET" && method !== "HEAD" && !isConfigUpdate) {
       res.statusCode = 405;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end("Method not allowed\n");
       return;
     }
-
-    const requestUrl = new URL(req.url, "http://localhost");
-    const pathname = decodeURIComponent(requestUrl.pathname);
 
     try {
       if (pathname === "/_/presenter" || pathname === "/_/presenter/") {
@@ -314,7 +329,68 @@ export async function startServer({
       }
 
       if (pathname === "/_/api/config") {
-        sendJson(res, mergedConfig, req.method);
+        if (req.method === "GET" || req.method === "HEAD") {
+          sendJson(res, mergedConfig, req.method);
+          return;
+        }
+
+        if (!isLocalRequest(req)) {
+          if (presenterKey) {
+            const providedKey = requestUrl.searchParams.get("key");
+            if (providedKey !== presenterKey) {
+              res.statusCode = 401;
+              res.setHeader("Content-Type", "text/plain; charset=utf-8");
+              res.end("Unauthorized\n");
+              return;
+            }
+          } else {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "text/plain; charset=utf-8");
+            res.end("Forbidden\n");
+            return;
+          }
+        }
+
+        if (!rootDir || normalizedRootUrl) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Presenter config is read-only for remote decks\n");
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(req);
+        } catch (error) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Invalid JSON\n");
+          return;
+        }
+
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Config payload must be a JSON object\n");
+          return;
+        }
+
+        const { sessionId: _sessionId, ...rest } = payload;
+        presenterConfig = rest;
+        mergedConfig = { ...rest, sessionId };
+
+        const configPath = path.join(rootDir, "presenter.json");
+        try {
+          await fs.writeFile(configPath, `${JSON.stringify(rest, null, 2)}\n`);
+        } catch (error) {
+          res.statusCode = 500;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("Failed to save presenter config\n");
+          return;
+        }
+
+        hub.updateConfig(mergedConfig);
+        sendJson(res, { saved: true, config: mergedConfig }, req.method);
         return;
       }
 
