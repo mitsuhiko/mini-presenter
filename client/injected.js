@@ -260,6 +260,8 @@
       bottom: 12px;
       right: 12px;
       display: flex;
+      flex-direction: column;
+      align-items: stretch;
       gap: 8px;
       padding: 8px;
       background: rgba(0, 0, 0, 0.7);
@@ -281,9 +283,18 @@
       font-size: 14px;
       font-weight: 700;
       letter-spacing: 0.01em;
+      flex: 1;
+      min-width: 120px;
+      text-align: center;
       box-shadow: 0 4px 0 #704f2d, 0 8px 12px rgba(0, 0, 0, 0.25);
       transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
     `;
+
+    const primaryRow = document.createElement("div");
+    primaryRow.style.cssText = "display: flex; gap: 8px; width: 100%;";
+
+    const navRow = document.createElement("div");
+    navRow.style.cssText = "display: flex; gap: 8px; width: 100%;";
 
     const fullscreenBtn = document.createElement("button");
     fullscreenBtn.textContent = "Fullscreen";
@@ -298,6 +309,20 @@
     presenterBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
     presenterBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
     presenterBtn.addEventListener("click", openPresenterView);
+
+    const prevBtn = document.createElement("button");
+    prevBtn.textContent = "◀ Prev";
+    prevBtn.style.cssText = buttonStyle;
+    prevBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
+    prevBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
+    prevBtn.addEventListener("click", () => handleNavigate("prev"));
+
+    const nextBtn = document.createElement("button");
+    nextBtn.textContent = "Next ▶";
+    nextBtn.style.cssText = buttonStyle;
+    nextBtn.addEventListener("mouseenter", () => { isHoveringButton = true; });
+    nextBtn.addEventListener("mouseleave", () => { isHoveringButton = false; scheduleHide(); });
+    nextBtn.addEventListener("click", () => handleNavigate("next"));
 
     const applyButtonState = (button, state) => {
       if (state === "active") {
@@ -328,9 +353,15 @@
 
     wireButtonEffects(fullscreenBtn);
     wireButtonEffects(presenterBtn);
+    wireButtonEffects(prevBtn);
+    wireButtonEffects(nextBtn);
 
-    overlay.appendChild(fullscreenBtn);
-    overlay.appendChild(presenterBtn);
+    primaryRow.appendChild(fullscreenBtn);
+    primaryRow.appendChild(presenterBtn);
+    navRow.appendChild(prevBtn);
+    navRow.appendChild(nextBtn);
+    overlay.appendChild(primaryRow);
+    overlay.appendChild(navRow);
 
     function show() {
       if (isVisible) {
