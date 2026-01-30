@@ -273,6 +273,25 @@ body {
   color: var(--presenter-title);
 }
 
+.presenter__notes-brand {
+  font-weight: 500;
+  font-size: 0.85em;
+  color: var(--presenter-text-subtle);
+  margin-left: 0.4rem;
+}
+
+.presenter__notes-brand[data-empty="true"] {
+  display: none;
+}
+
+.presenter__notes-brand::before {
+  content: "(";
+}
+
+.presenter__notes-brand::after {
+  content: ")";
+}
+
 .presenter__notes-status {
   font-size: 0.85rem;
   color: var(--presenter-text-subtle);

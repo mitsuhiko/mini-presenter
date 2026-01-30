@@ -448,13 +448,27 @@ function resolveCountdownDuration(timerConfig) {
   return 0;
 }
 
+function updatePresenterTitleDisplay(title) {
+  if (!brandDisplay) {
+    return;
+  }
+  if (title) {
+    brandDisplay.textContent = title;
+    brandDisplay.dataset.empty = "false";
+  } else {
+    brandDisplay.textContent = "";
+    brandDisplay.dataset.empty = "true";
+  }
+}
+
 function applyConfig(config) {
   const title = typeof config?.title === "string" ? config.title : null;
   configTitle = title;
-  if (title && brandDisplay) {
-    brandDisplay.textContent = title;
+  if (title) {
+    updatePresenterTitleDisplay(title);
     document.title = title;
   } else {
+    updatePresenterTitleDisplay("");
     syncTitleFromPreview();
   }
 
@@ -1122,13 +1136,13 @@ function findSlideIndex(order, hash) {
 }
 
 function syncTitleFromPreview() {
-  if (configTitle || !previewFrame || !brandDisplay) {
+  if (configTitle || !previewFrame) {
     return;
   }
   try {
     const title = previewFrame.contentDocument?.title;
     if (title) {
-      brandDisplay.textContent = title;
+      updatePresenterTitleDisplay(title);
       document.title = title;
     }
   } catch (error) {
