@@ -74,6 +74,7 @@ class Hub {
     if (role === "display") {
       ws.role = "display";
       this.displays.add(ws);
+      this.send(ws, { type: "config", config: this.config ?? {} });
     } else if (role === "presenter") {
       if (this.presenterKey && !ws.isLocal && key !== this.presenterKey) {
         ws.close(4001, "Unauthorized");
@@ -120,7 +121,10 @@ class Hub {
     if (typeof config?.sessionId === "string") {
       this.sessionId = config.sessionId;
     }
-    this.broadcast(this.presenters, { type: "config", config: this.config ?? {} });
+    this.broadcast(new Set([...this.presenters, ...this.displays]), {
+      type: "config",
+      config: this.config ?? {},
+    });
   }
 
   sendSync() {

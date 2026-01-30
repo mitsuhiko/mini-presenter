@@ -16,12 +16,17 @@
   const LASER_COLOR = "#ffdd4d";
   const LASER_RADIUS_RATIO = 0.012;
   const LASER_FADE_MS = 180;
+  const DEFAULT_SHORTCUTS = {
+    fullscreen: ["f"],
+    presenter: ["p"],
+  };
 
   let ws = null;
   let reconnectTimer = null;
   let statePoller = null;
   let sessionId = null;
   let lastReported = { slideId: null, hash: null, notes: null, viewport: null };
+  let shortcutConfig = { ...DEFAULT_SHORTCUTS };
   let drawingOverlay = null;
 
   function markPresenterPreview() {
@@ -173,6 +178,126 @@
     sendMessage(message);
   }
 
+  function normalizeShortcutList(value, fallback) {
+    if (!Array.isArray(value)) {
+      return fallback;
+    }
+    const normalized = value
+      .filter((entry) => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : fallback;
+  }
+
+  function applyShortcutConfig(config) {
+    const shortcuts = config?.shortcuts ?? {};
+    shortcutConfig = {
+      fullscreen: normalizeShortcutList(shortcuts.fullscreen, DEFAULT_SHORTCUTS.fullscreen),
+      presenter: normalizeShortcutList(shortcuts.presenter, DEFAULT_SHORTCUTS.presenter),
+    };
+  }
+
+  function normalizeKeyToken(token) {
+    const lower = token.toLowerCase();
+    if (lower === "space" || lower === "spacebar") {
+      return " ";
+    }
+    if (lower === "cmd" || lower === "command") {
+      return "meta";
+    }
+    if (lower === "ctrl") {
+      return "control";
+    }
+    if (lower === "option") {
+      return "alt";
+    }
+    return token;
+  }
+
+  function parseShortcut(shortcut) {
+    const tokens = shortcut
+      .split("+")
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .map(normalizeKeyToken);
+
+    const required = { meta: false, control: false, alt: false, shift: false };
+    let keyToken = null;
+
+    tokens.forEach((token) => {
+      const lower = token.toLowerCase();
+      if (lower === "meta") {
+        required.meta = true;
+        return;
+      }
+      if (lower === "control") {
+        required.control = true;
+        return;
+      }
+      if (lower === "alt") {
+        required.alt = true;
+        return;
+      }
+      if (lower === "shift") {
+        required.shift = true;
+        return;
+      }
+      keyToken = token;
+    });
+
+    return { keyToken, required };
+  }
+
+  function matchesShortcut(event, shortcut) {
+    if (!shortcut) {
+      return false;
+    }
+    const { keyToken, required } = parseShortcut(shortcut);
+    if (!keyToken) {
+      return false;
+    }
+
+    if (event.metaKey !== required.meta) {
+      return false;
+    }
+    if (event.ctrlKey !== required.control) {
+      return false;
+    }
+    if (event.altKey !== required.alt) {
+      return false;
+    }
+    if (event.shiftKey !== required.shift) {
+      return false;
+    }
+
+    const normalizedToken = normalizeKeyToken(keyToken);
+    const key = event.key;
+
+    if (normalizedToken === " ") {
+      return key === " " || key === "Spacebar";
+    }
+
+    if (normalizedToken.length === 1) {
+      return key.toLowerCase() === normalizedToken.toLowerCase();
+    }
+
+    return key === normalizedToken;
+  }
+
+  function resolveShortcutAction(event) {
+    for (const shortcut of shortcutConfig.fullscreen ?? []) {
+      if (matchesShortcut(event, shortcut)) {
+        return "fullscreen";
+      }
+    }
+    for (const shortcut of shortcutConfig.presenter ?? []) {
+      if (matchesShortcut(event, shortcut)) {
+        return "presenter";
+      }
+    }
+    return null;
+  }
+
   function dispatchKey(key) {
     const target = document.body || document.documentElement || document;
     if (!target || typeof target.dispatchEvent !== "function") {
@@ -227,16 +352,21 @@
   }
 
   function handleKeydown(event) {
-    if (event.key === "f" || event.key === "F") {
-      if (event.metaKey || event.ctrlKey || event.altKey) {
-        return;
-      }
-      const target = event.target;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
-        return;
-      }
-      event.preventDefault();
+    const target = event.target;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+      return;
+    }
+    const action = resolveShortcutAction(event);
+    if (!action) {
+      return;
+    }
+    event.preventDefault();
+    if (action === "fullscreen") {
       toggleFullscreen();
+      return;
+    }
+    if (action === "presenter") {
+      openPresenterView();
     }
   }
 
@@ -567,6 +697,13 @@
       handleGoto(message.hash);
     } else if (message.type === "draw") {
       drawingOverlay?.renderDrawMessage(message);
+    } else if (message.type === "config") {
+      if (message.config) {
+        applyShortcutConfig(message.config);
+        if (typeof message.config.sessionId === "string") {
+          sessionId = message.config.sessionId;
+        }
+      }
     } else if (message.type === "reload") {
       if (message.preserveHash) {
         location.reload();
@@ -585,6 +722,9 @@
       const data = await response.json();
       if (data && typeof data.sessionId === "string") {
         sessionId = data.sessionId;
+      }
+      if (data) {
+        applyShortcutConfig(data);
       }
     } catch (error) {
       // ignore config fetch failures

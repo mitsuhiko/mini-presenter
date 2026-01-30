@@ -41,6 +41,8 @@ const settingsKeyNext = document.querySelector("#settings-key-next");
 const settingsKeyPrev = document.querySelector("#settings-key-prev");
 const settingsKeyFirst = document.querySelector("#settings-key-first");
 const settingsKeyLast = document.querySelector("#settings-key-last");
+const settingsKeyFullscreen = document.querySelector("#settings-key-fullscreen");
+const settingsKeyPresenter = document.querySelector("#settings-key-presenter");
 const settingsNotesSource = document.querySelector("#settings-notes-source");
 const settingsPreviewRelative = document.querySelector("#settings-preview-relative");
 const settingsTimerMode = document.querySelector("#settings-timer-mode");
@@ -98,6 +100,12 @@ const DEFAULT_KEYBOARD = {
   last: ["End"],
 };
 
+const DEFAULT_SHORTCUTS = {
+  fullscreen: ["f"],
+  presenter: ["p"],
+};
+
+const KEY_MODIFIER_OPTIONS = ["Meta", "Control", "Alt", "Shift"];
 const KEY_AUTOCOMPLETE_OPTIONS = [
   "ArrowRight",
   "ArrowLeft",
@@ -115,10 +123,9 @@ const KEY_AUTOCOMPLETE_OPTIONS = [
   "Backspace",
   "Delete",
   "Insert",
-  "Shift",
-  "Control",
-  "Alt",
-  "Meta",
+  ...KEY_MODIFIER_OPTIONS,
+  ...Array.from({ length: 26 }, (_, index) => String.fromCharCode(65 + index)),
+  ...Array.from({ length: 10 }, (_, index) => String(index)),
 ];
 
 function isLocalHostname(hostname) {
@@ -214,8 +221,54 @@ function formatKeyList(keys) {
 function applyKeySuggestion(value, suggestion) {
   const parts = value.split(",");
   const tokens = parts.slice(0, -1).map((part) => part.trim()).filter(Boolean);
-  tokens.push(suggestion);
+  const lastPart = parts[parts.length - 1] ?? "";
+  const rawSegments = lastPart.split("+").map((part) => part.trim());
+  const prefixSegments = rawSegments.slice(0, -1).filter(Boolean);
+  let nextToken = "";
+
+  if (suggestion.endsWith("+")) {
+    const modifier = suggestion.slice(0, -1);
+    nextToken = [...prefixSegments, modifier, ""].join("+");
+  } else {
+    nextToken = [...prefixSegments, suggestion].join("+");
+  }
+
+  if (nextToken) {
+    tokens.push(nextToken);
+  }
+
   return tokens.join(", ");
+}
+
+function buildKeySuggestions(rawValue) {
+  const parts = rawValue.split(",");
+  const lastPart = parts[parts.length - 1] ?? "";
+  const trimmed = lastPart.trim();
+  const segments = trimmed.split("+").map((part) => part.trim());
+  const prefixSegments = segments.slice(0, -1).filter(Boolean);
+  const rawQuery = segments[segments.length - 1] ?? "";
+  const query = rawQuery.toLowerCase();
+  const usedModifiers = new Set(
+    prefixSegments.map((segment) => segment.toLowerCase())
+  );
+
+  const modifierMatches = KEY_MODIFIER_OPTIONS.filter((modifier) => {
+    const lower = modifier.toLowerCase();
+    if (usedModifiers.has(lower)) {
+      return false;
+    }
+    return query ? lower.startsWith(query) : true;
+  }).map((modifier) => `${modifier}+`);
+
+  const keyMatches = KEY_AUTOCOMPLETE_OPTIONS.filter((option) => {
+    const lower = option.toLowerCase();
+    if (KEY_MODIFIER_OPTIONS.map((item) => item.toLowerCase()).includes(lower)) {
+      return false;
+    }
+    return query ? lower.startsWith(query) : true;
+  });
+
+  return [...modifierMatches, ...keyMatches];
 }
 
 function setupKeyAutocomplete(input) {
@@ -253,13 +306,7 @@ function setupKeyAutocomplete(input) {
   };
 
   const update = () => {
-    const rawValue = input.value;
-    const parts = rawValue.split(",");
-    const lastPart = parts[parts.length - 1]?.trim() ?? "";
-    const query = lastPart.toLowerCase();
-    const matches = KEY_AUTOCOMPLETE_OPTIONS.filter((option) =>
-      query ? option.toLowerCase().startsWith(query) : true
-    );
+    const matches = buildKeySuggestions(input.value);
     if (matches.length === 0) {
       hide();
       return;
@@ -476,6 +523,14 @@ function syncSettingsForm() {
     settingsKeyLast.value = formatKeyList(keyboard.last ?? DEFAULT_KEYBOARD.last);
   }
 
+  const shortcuts = draftConfig.shortcuts ?? {};
+  if (settingsKeyFullscreen) {
+    settingsKeyFullscreen.value = formatKeyList(shortcuts.fullscreen ?? DEFAULT_SHORTCUTS.fullscreen);
+  }
+  if (settingsKeyPresenter) {
+    settingsKeyPresenter.value = formatKeyList(shortcuts.presenter ?? DEFAULT_SHORTCUTS.presenter);
+  }
+
   if (settingsNotesSource) {
     const source = draftConfig.notes?.source;
     settingsNotesSource.value =
@@ -569,6 +624,24 @@ function updateKeyboardConfig(nextConfig, action, value) {
     nextConfig.keyboard = keyboard;
   } else {
     delete nextConfig.keyboard;
+  }
+}
+
+function updateShortcutConfig(nextConfig, action, value) {
+  const keys = parseKeyList(value);
+  const shortcuts =
+    nextConfig.shortcuts && typeof nextConfig.shortcuts === "object"
+      ? { ...nextConfig.shortcuts }
+      : {};
+  if (keys.length > 0) {
+    shortcuts[action] = keys;
+  } else {
+    delete shortcuts[action];
+  }
+  if (Object.keys(shortcuts).length > 0) {
+    nextConfig.shortcuts = shortcuts;
+  } else {
+    delete nextConfig.shortcuts;
   }
 }
 
@@ -2089,6 +2162,8 @@ settingsKeyNext?.addEventListener("change", () => {
 setupKeyAutocomplete(settingsKeyPrev);
 setupKeyAutocomplete(settingsKeyFirst);
 setupKeyAutocomplete(settingsKeyLast);
+setupKeyAutocomplete(settingsKeyFullscreen);
+setupKeyAutocomplete(settingsKeyPresenter);
 
 settingsKeyPrev?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
@@ -2105,6 +2180,18 @@ settingsKeyFirst?.addEventListener("change", () => {
 settingsKeyLast?.addEventListener("change", () => {
   updateDraftConfig((nextConfig) => {
     updateKeyboardConfig(nextConfig, "last", settingsKeyLast.value);
+  });
+});
+
+settingsKeyFullscreen?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateShortcutConfig(nextConfig, "fullscreen", settingsKeyFullscreen.value);
+  });
+});
+
+settingsKeyPresenter?.addEventListener("change", () => {
+  updateDraftConfig((nextConfig) => {
+    updateShortcutConfig(nextConfig, "presenter", settingsKeyPresenter.value);
   });
 });
 
