@@ -1,3 +1,5 @@
+const presenterRoot = document.querySelector(".presenter");
+const presenterMain = document.querySelector(".presenter__main");
 const timerDisplay = document.querySelector("#timer");
 const currentSlideDisplay = document.querySelector("#current-slide");
 const displayCountDisplay = document.querySelector("#display-count");
@@ -68,6 +70,8 @@ const settingsJsonStatus = document.querySelector("#settings-json-status");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
+const mainSplitter = document.querySelector("#presenter-main-splitter");
+const notesSplitter = document.querySelector("#presenter-notes-splitter");
 const questionsToggleButton = document.querySelector("#questions-toggle");
 const questionsCountBadge = document.querySelector("#questions-count");
 const questionsOverlay = document.querySelector("#questions-overlay");
@@ -147,6 +151,18 @@ const DEFAULT_SHORTCUTS = {
 };
 
 const QUESTIONS_POLL_INTERVAL_MS = 6000;
+const COMPACT_LAYOUT_MEDIA_QUERY = "(max-width: 720px)";
+const MAIN_SPLIT_STORAGE_KEY = "miniPresenter.layout.mainSplitRatio";
+const NOTES_SPLIT_STORAGE_KEY = "miniPresenter.layout.notesSplitRatio";
+const DEFAULT_MAIN_SPLIT_RATIO = 2.3 / 3.3;
+const DEFAULT_NOTES_SPLIT_RATIO = 0.22;
+const MIN_MAIN_SPLIT_RATIO = 0.45;
+const MAX_MAIN_SPLIT_RATIO = 0.82;
+const MIN_NOTES_SPLIT_RATIO = 0;
+const MIN_NOTES_SPLIT_PX = 24;
+const MAX_NOTES_SPLIT_RATIO = 0.45;
+const SPLITTER_KEYBOARD_STEP = 0.02;
+const compactLayoutMedia = window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY);
 
 const KEY_MODIFIER_OPTIONS = ["Meta", "Control", "Alt", "Shift"];
 const KEY_AUTOCOMPLETE_OPTIONS = [
@@ -180,6 +196,277 @@ function normalizeShortcutList(value, fallback) {
     .map((entry) => entry.trim())
     .filter(Boolean);
   return normalized.length > 0 ? normalized : fallback;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function readStoredRatio(key, fallback, min, max) {
+  try {
+    const value = Number.parseFloat(window.localStorage.getItem(key) ?? "");
+    if (Number.isFinite(value)) {
+      return clampNumber(value, min, max);
+    }
+  } catch {
+    // Ignore storage access failures.
+  }
+  return fallback;
+}
+
+function writeStoredRatio(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Ignore storage access failures.
+  }
+}
+
+function isCompactPresenterLayout() {
+  return compactLayoutMedia.matches;
+}
+
+function getPresenterUsableHeight() {
+  if (!presenterRoot) {
+    return 0;
+  }
+  const rect = presenterRoot.getBoundingClientRect();
+  const styles = window.getComputedStyle(presenterRoot);
+  const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+  const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
+  return Math.max(0, rect.height - paddingTop - paddingBottom);
+}
+
+function getMinNotesSplitRatio() {
+  const usableHeight = getPresenterUsableHeight();
+  if (!usableHeight) {
+    return MIN_NOTES_SPLIT_RATIO;
+  }
+  return clampNumber(MIN_NOTES_SPLIT_PX / usableHeight, MIN_NOTES_SPLIT_RATIO, MAX_NOTES_SPLIT_RATIO);
+}
+
+function updateSplitterAria() {
+  if (mainSplitter) {
+    const percent = Math.round(mainSplitRatio * 100);
+    mainSplitter.setAttribute("aria-valuemin", String(Math.round(MIN_MAIN_SPLIT_RATIO * 100)));
+    mainSplitter.setAttribute("aria-valuemax", String(Math.round(MAX_MAIN_SPLIT_RATIO * 100)));
+    mainSplitter.setAttribute("aria-valuenow", String(percent));
+    mainSplitter.setAttribute("aria-valuetext", `Current slide ${percent}%, sidebar ${100 - percent}%`);
+  }
+  if (notesSplitter) {
+    const minNotesSplitRatio = getMinNotesSplitRatio();
+    const percent = Math.round(notesSplitRatio * 100);
+    notesSplitter.setAttribute("aria-valuemin", String(Math.round(minNotesSplitRatio * 100)));
+    notesSplitter.setAttribute("aria-valuemax", String(Math.round(MAX_NOTES_SPLIT_RATIO * 100)));
+    notesSplitter.setAttribute("aria-valuenow", String(percent));
+    notesSplitter.setAttribute("aria-valuetext", `Speaker notes ${percent}%, main area ${100 - percent}%`);
+  }
+}
+
+function applyPresenterLayout() {
+  const minNotesSplitRatio = getMinNotesSplitRatio();
+  mainSplitRatio = clampNumber(mainSplitRatio, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+  notesSplitRatio = clampNumber(notesSplitRatio, minNotesSplitRatio, MAX_NOTES_SPLIT_RATIO);
+
+  if (!presenterRoot || !presenterMain) {
+    updateSplitterAria();
+    return;
+  }
+
+  if (isCompactPresenterLayout()) {
+    presenterRoot.style.gridTemplateRows = "";
+    presenterMain.style.gridTemplateColumns = "";
+    updateSplitterAria();
+    return;
+  }
+
+  presenterRoot.style.gridTemplateRows = `minmax(0, ${(1 - notesSplitRatio) * 100}fr) var(--presenter-splitter-size) minmax(0, ${notesSplitRatio * 100}fr)`;
+  presenterMain.style.gridTemplateColumns = `minmax(0, ${mainSplitRatio * 100}fr) var(--presenter-splitter-size) minmax(18rem, ${(1 - mainSplitRatio) * 100}fr)`;
+  updateSplitterAria();
+  resizePreviewCanvases();
+}
+
+function persistPresenterLayout() {
+  writeStoredRatio(MAIN_SPLIT_STORAGE_KEY, mainSplitRatio);
+  writeStoredRatio(NOTES_SPLIT_STORAGE_KEY, notesSplitRatio);
+}
+
+function updateMainSplitFromPointer(event) {
+  if (!presenterMain) {
+    return;
+  }
+  const rect = presenterMain.getBoundingClientRect();
+  if (!rect.width) {
+    return;
+  }
+  const offset = clampNumber(
+    event.clientX - rect.left,
+    rect.width * MIN_MAIN_SPLIT_RATIO,
+    rect.width * MAX_MAIN_SPLIT_RATIO
+  );
+  mainSplitRatio = clampNumber(offset / rect.width, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+}
+
+function updateNotesSplitFromPointer(event) {
+  if (!presenterRoot) {
+    return;
+  }
+  const rect = presenterRoot.getBoundingClientRect();
+  const styles = window.getComputedStyle(presenterRoot);
+  const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+  const usableHeight = getPresenterUsableHeight();
+  const minNotesSplitRatio = getMinNotesSplitRatio();
+  if (!usableHeight) {
+    return;
+  }
+  const topOffset = clampNumber(
+    event.clientY - rect.top - paddingTop,
+    usableHeight * (1 - MAX_NOTES_SPLIT_RATIO),
+    usableHeight * (1 - minNotesSplitRatio)
+  );
+  notesSplitRatio = clampNumber(1 - topOffset / usableHeight, minNotesSplitRatio, MAX_NOTES_SPLIT_RATIO);
+}
+
+function stopSplitterDrag() {
+  if (!activeSplitterDrag) {
+    return;
+  }
+  const { element, pointerId } = activeSplitterDrag;
+  element?.removeAttribute("data-dragging");
+  if (document.body) {
+    delete document.body.dataset.resizing;
+  }
+  if (element && pointerId != null && typeof element.releasePointerCapture === "function") {
+    try {
+      if (!element.hasPointerCapture || element.hasPointerCapture(pointerId)) {
+        element.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // Ignore pointer capture cleanup failures.
+    }
+  }
+  document.removeEventListener("pointermove", handleSplitterPointerMove);
+  document.removeEventListener("pointerup", handleSplitterPointerUp);
+  document.removeEventListener("pointercancel", handleSplitterPointerUp);
+  activeSplitterDrag = null;
+  persistPresenterLayout();
+}
+
+function handleSplitterPointerMove(event) {
+  if (!activeSplitterDrag) {
+    return;
+  }
+  if (activeSplitterDrag.type === "main") {
+    updateMainSplitFromPointer(event);
+  } else {
+    updateNotesSplitFromPointer(event);
+  }
+  applyPresenterLayout();
+}
+
+function handleSplitterPointerUp(event) {
+  if (!activeSplitterDrag) {
+    return;
+  }
+  if (event.pointerId !== activeSplitterDrag.pointerId) {
+    return;
+  }
+  stopSplitterDrag();
+}
+
+function startSplitterDrag(event, type, element) {
+  if (!element || isCompactPresenterLayout()) {
+    return;
+  }
+  event.preventDefault();
+  stopSplitterDrag();
+  activeSplitterDrag = { type, element, pointerId: event.pointerId };
+  element.dataset.dragging = "true";
+  if (document.body) {
+    document.body.dataset.resizing = type === "main" ? "vertical" : "horizontal";
+  }
+  if (typeof element.setPointerCapture === "function") {
+    try {
+      element.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore pointer capture failures.
+    }
+  }
+  document.addEventListener("pointermove", handleSplitterPointerMove);
+  document.addEventListener("pointerup", handleSplitterPointerUp);
+  document.addEventListener("pointercancel", handleSplitterPointerUp);
+  handleSplitterPointerMove(event);
+}
+
+function nudgeSplitter(type, delta) {
+  if (isCompactPresenterLayout()) {
+    return;
+  }
+  if (type === "main") {
+    mainSplitRatio = clampNumber(mainSplitRatio + delta, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+  } else {
+    const minNotesSplitRatio = getMinNotesSplitRatio();
+    notesSplitRatio = clampNumber(notesSplitRatio + delta, minNotesSplitRatio, MAX_NOTES_SPLIT_RATIO);
+  }
+  applyPresenterLayout();
+  persistPresenterLayout();
+}
+
+function handleSplitterKeyDown(event) {
+  if (event.target === mainSplitter) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      nudgeSplitter("main", -SPLITTER_KEYBOARD_STEP);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      nudgeSplitter("main", SPLITTER_KEYBOARD_STEP);
+      return;
+    }
+  }
+
+  if (event.target === notesSplitter) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      nudgeSplitter("notes", SPLITTER_KEYBOARD_STEP);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      nudgeSplitter("notes", -SPLITTER_KEYBOARD_STEP);
+    }
+  }
+}
+
+function setupPresenterLayout() {
+  mainSplitRatio = readStoredRatio(
+    MAIN_SPLIT_STORAGE_KEY,
+    DEFAULT_MAIN_SPLIT_RATIO,
+    MIN_MAIN_SPLIT_RATIO,
+    MAX_MAIN_SPLIT_RATIO
+  );
+  notesSplitRatio = readStoredRatio(
+    NOTES_SPLIT_STORAGE_KEY,
+    DEFAULT_NOTES_SPLIT_RATIO,
+    MIN_NOTES_SPLIT_RATIO,
+    MAX_NOTES_SPLIT_RATIO
+  );
+  applyPresenterLayout();
+  mainSplitter?.addEventListener("pointerdown", (event) => {
+    startSplitterDrag(event, "main", mainSplitter);
+  });
+  notesSplitter?.addEventListener("pointerdown", (event) => {
+    startSplitterDrag(event, "notes", notesSplitter);
+  });
+  mainSplitter?.addEventListener("keydown", handleSplitterKeyDown);
+  notesSplitter?.addEventListener("keydown", handleSplitterKeyDown);
+  if (typeof compactLayoutMedia.addEventListener === "function") {
+    compactLayoutMedia.addEventListener("change", applyPresenterLayout);
+  } else if (typeof compactLayoutMedia.addListener === "function") {
+    compactLayoutMedia.addListener(applyPresenterLayout);
+  }
+  window.addEventListener("resize", applyPresenterLayout);
 }
 
 function applyShortcutConfig(config) {
@@ -668,6 +955,9 @@ let lastLaserSent = 0;
 let lastDrawSent = 0;
 let laserFadeTimer = null;
 let previewResizeObserver = null;
+let mainSplitRatio = DEFAULT_MAIN_SPLIT_RATIO;
+let notesSplitRatio = DEFAULT_NOTES_SPLIT_RATIO;
+let activeSplitterDrag = null;
 let savedConfig = {};
 let draftConfig = {};
 let settingsDirty = false;
@@ -3673,6 +3963,7 @@ setPreviewActive(nextPreviewSection, false);
 updatePreview(lastKnownHash);
 setNotesDisplay("Waiting for slide updates…", "Idle");
 setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
+setupPresenterLayout();
 attachDrawingHandlers();
 syncToolControls();
 setActiveTool("none");
