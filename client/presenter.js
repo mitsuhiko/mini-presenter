@@ -67,6 +67,7 @@ const settingsKeyRecording = document.querySelector("#settings-key-recording");
 const settingsRecordingDevice = document.querySelector("#settings-recording-device");
 const settingsJson = document.querySelector("#settings-json");
 const settingsJsonStatus = document.querySelector("#settings-json-status");
+let faviconLink = document.querySelector("#presenter-favicon");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
 const notesContent = document.querySelector("#notes-content");
@@ -163,6 +164,7 @@ const MIN_NOTES_SPLIT_PX = 24;
 const MAX_NOTES_SPLIT_RATIO = 0.45;
 const SPLITTER_KEYBOARD_STEP = 0.02;
 const compactLayoutMedia = window.matchMedia(COMPACT_LAYOUT_MEDIA_QUERY);
+const colorSchemeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 
 const KEY_MODIFIER_OPTIONS = ["Meta", "Control", "Alt", "Shift"];
 const KEY_AUTOCOMPLETE_OPTIONS = [
@@ -2213,6 +2215,87 @@ function updateSlideIndicator(slideId) {
   currentSlideDisplay.textContent = formatSlideDisplay(slideId);
 }
 
+function ensurePresenterFaviconLink() {
+  if (faviconLink) {
+    return faviconLink;
+  }
+  if (!document.head) {
+    return null;
+  }
+  faviconLink = document.createElement("link");
+  faviconLink.id = "presenter-favicon";
+  faviconLink.rel = "icon";
+  faviconLink.type = "image/svg+xml";
+  document.head.appendChild(faviconLink);
+  return faviconLink;
+}
+
+function getPresenterFaviconProgress({ slideId, hash } = {}) {
+  const order = apiSlideOrder || getSlideOrderFromPreview();
+  if (!Array.isArray(order) || order.length === 0) {
+    return 0;
+  }
+  if (order.length === 1) {
+    return 1;
+  }
+  const index = findSlideIndex(order, hash || slideId || lastKnownHash || lastSlideId || "#");
+  if (index <= 0) {
+    return 0;
+  }
+  if (index >= order.length - 1) {
+    return 1;
+  }
+  return index / (order.length - 1);
+}
+
+function buildPresenterFaviconHref(progress) {
+  const normalizedProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+  const progressValue = Number((normalizedProgress * 100).toFixed(4));
+  const darkMode = colorSchemeMedia.matches;
+  const background = darkMode ? "#ffffff" : "#000000";
+  const foreground = darkMode ? "#000000" : "#ffffff";
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="15" fill="${background}" />
+      <circle cx="16" cy="16" r="10" fill="none" stroke="${foreground}" stroke-opacity="0.24" stroke-width="4" />
+      <circle
+        cx="16"
+        cy="16"
+        r="10"
+        fill="none"
+        stroke="${foreground}"
+        stroke-width="4"
+        stroke-linecap="butt"
+        pathLength="100"
+        stroke-dasharray="${progressValue} 100"
+        transform="rotate(-90 16 16)"
+      />
+    </svg>
+  `;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function updatePresenterFavicon({ slideId = lastSlideId, hash = lastKnownHash } = {}) {
+  const link = ensurePresenterFaviconLink();
+  if (!link) {
+    return;
+  }
+  link.href = buildPresenterFaviconHref(getPresenterFaviconProgress({ slideId, hash }));
+}
+
+function setupPresenterFavicon() {
+  updatePresenterFavicon();
+  if (typeof colorSchemeMedia.addEventListener === "function") {
+    colorSchemeMedia.addEventListener("change", () => {
+      updatePresenterFavicon();
+    });
+  } else if (typeof colorSchemeMedia.addListener === "function") {
+    colorSchemeMedia.addListener(() => {
+      updatePresenterFavicon();
+    });
+  }
+}
+
 function requestHardReload() {
   sendMessage({ type: "reload" });
   window.location.reload();
@@ -2512,6 +2595,7 @@ function getSlideOrderFromPreview() {
         const filtered = list.filter((entry) => typeof entry === "string");
         apiSlideOrder = filtered.length > 0 ? filtered : null;
         updateSlideIndicator(lastSlideId);
+        updatePresenterFavicon();
       }
     }
   } catch (error) {
@@ -3257,6 +3341,7 @@ function updateSlideState({
   const previousHash = lastKnownHash;
   const nextHash = hash || slideId || "#";
   lastKnownHash = nextHash;
+  updatePresenterFavicon({ slideId: stateKey, hash: nextHash });
   updatePreview(nextHash);
   updateNotes({ slideId, hash: nextHash, notes });
   updateNextPreview({ slideId, hash: nextHash });
@@ -3964,6 +4049,7 @@ updatePreview(lastKnownHash);
 setNotesDisplay("Waiting for slide updates…", "Idle");
 setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 setupPresenterLayout();
+setupPresenterFavicon();
 attachDrawingHandlers();
 syncToolControls();
 setActiveTool("none");
