@@ -48,7 +48,7 @@ window.miniPresenter = {
 
 Behavior details:
 - `getSlideList()` enables the **next-slide preview** in the presenter.
-- `getNotes(slideId)` supplies speaker notes directly from the deck (string only).
+- `getNotes(slideId)` supplies speaker notes directly from the deck (string only, optional `@name:` markers supported).
 
 ## Presenter preview context
 Presenter loads slide previews in iframes with the `?_presenter_preview=1` query param.
@@ -81,6 +81,21 @@ Your deck must resolve `~next`/`~prev` to the correct slide/build state (see `ex
 Presenter looks for notes in this order:
 1. `window.miniPresenter.getNotes(slideId)` (if `notes.source` is `api` or `auto`).
 2. Files in `notes/` next to `index.html` (if `notes.source` is `files` or `auto`).
+
+Notes can include speaker markers using lines like `@name:`.
+
+Example:
+```md
+@alice:
+Open the section and set context.
+
+@bob:
+Run the demo.
+```
+
+- First `@name:` = active speaker for that slide.
+- Additional `@name:` markers = additional speakers on that slide.
+- If a slide has no `@name:` marker, speaker assignment carries over from the previous slide.
 
 File mapping (hash → notes file):
 - `#1` → `notes/1.md`

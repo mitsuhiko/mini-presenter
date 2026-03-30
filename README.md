@@ -23,7 +23,7 @@ special marker hashes you can also have next slide previews.
 - Audience Q&A page with live updates and QR sharing.
 - Presenter recording (slide events + audio) with playback for local decks.
 - Optional next-slide preview when your deck exposes slide order.
-- Speaker notes via deck API or Markdown files.
+- Speaker notes via deck API or Markdown files, with optional `@speaker:` tags.
 - Configurable keyboard shortcuts.
 - Optional file watching with auto-reload.
 - Optional Cloudflare tunnel via `cloudflared` for sharing previews.
@@ -94,7 +94,7 @@ window.miniPresenter = {
 ```
 
 - `getSlideList()` enables the next-slide preview.
-- `getNotes(slideId)` provides speaker notes directly from the deck.
+- `getNotes(slideId)` provides speaker notes directly from the deck (including optional `@name:` speaker markers).
 - If you don’t expose these hooks, the presenter falls back to URL hash updates and keyboard events.
 
 ## Presenter preview context
@@ -184,6 +184,23 @@ specific file is missing (for example `#2/1` → `notes/2.md`).
 
 Notes are fetched from `/_/api/notes?hash=%23intro` and rendered as pre-wrapped text.
 
+### Speaker markers in notes
+
+You can mark speakers directly in notes with lines that start with `@name:`:
+
+```md
+@alice:
+Intro and framing
+
+@bob:
+Live demo
+```
+
+- The first `@name:` on a slide is treated as the active speaker.
+- Additional `@name:` markers are treated as additional speakers for that slide.
+- Speaker tags are highlighted in color in the presenter notes panel.
+- If a slide has no `@name:` marker, the previous slide's speaker carries on.
+
 ## Audience questions (Q&A)
 
 Audience members can submit and vote on questions at:
@@ -208,6 +225,12 @@ The presenter shows a next-slide preview when it can determine the slide order f
 
 If `preview.relativeHash` is enabled, the preview iframe loads `#<hash>~next` and expects
 slide logic in your deck to resolve it to the next state (including build steps).
+
+When speaker markers are present in notes, the next-slide card also shows:
+- the first speaker on the next slide
+- any additional speakers on that slide
+
+If the next slide has no `@name:` marker, the current speaker is carried over.
 
 ## AI Use Disclaimer
 

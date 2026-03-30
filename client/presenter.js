@@ -13,6 +13,7 @@ const laserCanvas = document.querySelector("#preview-laser-canvas");
 const nextPreviewPlaceholder = document.querySelector("#next-preview-placeholder");
 const nextPreviewSection = document.querySelector(".presenter__preview--next");
 const nextPreviewFrame = document.querySelector("#next-preview-frame");
+const nextPreviewSpeakers = document.querySelector("#next-preview-speakers");
 const timerToggleButton = document.querySelector("#timer-toggle");
 const timerResetButton = document.querySelector("#timer-reset");
 const actionButtons = document.querySelectorAll("[data-action]");
@@ -70,6 +71,7 @@ const settingsJsonStatus = document.querySelector("#settings-json-status");
 let faviconLink = document.querySelector("#presenter-favicon");
 const brandDisplay = document.querySelector(".presenter__brand");
 const notesStatus = document.querySelector("#notes-status");
+const notesSpeakers = document.querySelector("#notes-speakers");
 const notesContent = document.querySelector("#notes-content");
 const mainSplitter = document.querySelector("#presenter-main-splitter");
 const notesSplitter = document.querySelector("#presenter-notes-splitter");
@@ -94,6 +96,8 @@ const NOTES_DISABLED_TEXT = "Speaker notes disabled.";
 const NEXT_PREVIEW_WAITING_TEXT = "Waiting for display connection…";
 const NEXT_PREVIEW_UNAVAILABLE_TEXT = "Next slide preview unavailable.";
 const NEXT_PREVIEW_LAST_TEXT = "End of deck.";
+const NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT = "No speaker assigned.";
+const SPEAKER_MARKER_PATTERN = /^\s*@([^:\n]+?)\s*:\s*(.*)$/u;
 
 const DRAW_COLOR = "#ff4d4d";
 const DRAW_LINE_WIDTH_RATIO = 0.004;
@@ -928,9 +932,11 @@ let previewReady = false;
 let nextPreviewReady = false;
 let keyboardMap = new Map();
 let notesSource = "auto";
-let lastNotesKey = null;
 let notesLoadingKey = null;
 const notesCache = new Map();
+let currentSpeaker = null;
+let nextPreviewSpeakersKey = null;
+let nextPreviewSpeakerRequestId = 0;
 let apiSlideOrder = null;
 let relativeHashPreview = false;
 let nextPreviewHash = null;
@@ -2522,10 +2528,15 @@ function handleRelativeNextPreviewLoad() {
     setPreviewActive(nextPreviewSection, false);
     setNextPreviewEnd(true);
     setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
+    setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
     pendingNextPreviewHash = null;
+    nextPreviewSpeakersKey = null;
     relativeNextPreviewEndHash = resolvedFrameHash || resolvedPendingHash;
   } else {
     setNextPreviewEnd(false);
+    if (nextPreviewSpeakersKey) {
+      updateNextPreviewSpeakers(nextPreviewSpeakersKey);
+    }
   }
 }
 
@@ -2636,6 +2647,136 @@ function resolveNextPreviewInfo({ slideId, hash }) {
   return { hash: order[index + 1], reason: null };
 }
 
+function setNextPreviewSpeakersPlaceholder(text) {
+  if (!nextPreviewSpeakers) {
+    return;
+  }
+  nextPreviewSpeakers.replaceChildren();
+  nextPreviewSpeakers.dataset.empty = "true";
+  nextPreviewSpeakers.textContent = text;
+}
+
+function renderNextPreviewSpeakers({ firstSpeaker, otherSpeakers, carried = false }) {
+  if (!nextPreviewSpeakers) {
+    return;
+  }
+
+  nextPreviewSpeakers.replaceChildren();
+
+  if (!firstSpeaker) {
+    nextPreviewSpeakers.dataset.empty = "true";
+    nextPreviewSpeakers.textContent = NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT;
+    return;
+  }
+
+  nextPreviewSpeakers.dataset.empty = "false";
+
+  const leadRow = document.createElement("div");
+  leadRow.className = "presenter__preview-speaker-row";
+  const leadLabel = document.createElement("span");
+  leadLabel.className = "presenter__preview-speaker-label";
+  leadLabel.textContent = carried ? "Next (carried)" : "Next";
+  leadRow.appendChild(leadLabel);
+  leadRow.appendChild(createSpeakerChip(firstSpeaker, { carried }));
+  nextPreviewSpeakers.appendChild(leadRow);
+
+  if (Array.isArray(otherSpeakers) && otherSpeakers.length > 0) {
+    const othersRow = document.createElement("div");
+    othersRow.className = "presenter__preview-speaker-row";
+    const othersLabel = document.createElement("span");
+    othersLabel.className = "presenter__preview-speaker-label";
+    othersLabel.textContent = "Also";
+    othersRow.appendChild(othersLabel);
+    otherSpeakers.forEach((speaker) => {
+      othersRow.appendChild(createSpeakerChip(speaker));
+    });
+    nextPreviewSpeakers.appendChild(othersRow);
+  }
+}
+
+async function resolveNotesForKey(notesKey, { apiNotes = null, preferApi = true } = {}) {
+  if (!notesKey || notesSource === "none") {
+    return null;
+  }
+
+  if (typeof apiNotes === "string" && apiNotes) {
+    notesCache.set(notesKey, apiNotes);
+    return apiNotes;
+  }
+
+  if (preferApi && notesSource !== "files") {
+    const inlineApiNotes = getApiNotesForKey(notesKey);
+    if (typeof inlineApiNotes === "string" && inlineApiNotes) {
+      notesCache.set(notesKey, inlineApiNotes);
+      return inlineApiNotes;
+    }
+  }
+
+  if (notesSource === "api") {
+    return null;
+  }
+
+  if (notesCache.has(notesKey)) {
+    return notesCache.get(notesKey);
+  }
+
+  const fileNotes = await fetchNotesFromFiles(notesKey);
+  notesCache.set(notesKey, fileNotes);
+  return fileNotes;
+}
+
+function resolveSpeakerLookupHash(hash) {
+  if (!hash || !/~(next|prev)$/u.test(hash)) {
+    return hash;
+  }
+  try {
+    const frameHash = nextPreviewFrame?.contentWindow?.location?.hash || null;
+    if (frameHash && !/~(next|prev)$/u.test(frameHash)) {
+      return frameHash;
+    }
+  } catch {
+    // ignore frame access failures
+  }
+  return null;
+}
+
+async function updateNextPreviewSpeakers(nextHash) {
+  if (!nextPreviewSpeakers) {
+    return;
+  }
+
+  if (!nextHash || notesSource === "none") {
+    nextPreviewSpeakersKey = null;
+    setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
+    return;
+  }
+
+  const requestId = ++nextPreviewSpeakerRequestId;
+  nextPreviewSpeakersKey = nextHash;
+  setNextPreviewSpeakersPlaceholder("Loading speakers…");
+
+  const notesKey = resolveSpeakerLookupHash(nextHash);
+  if (!notesKey) {
+    return;
+  }
+
+  const notes = await resolveNotesForKey(notesKey, { preferApi: true });
+  if (requestId !== nextPreviewSpeakerRequestId || nextPreviewSpeakersKey !== nextHash) {
+    return;
+  }
+
+  const parsed = parseNotesWithSpeakers(notes || "");
+  const firstSpeaker = parsed.firstSpeaker || currentSpeaker;
+  const carried = !parsed.firstSpeaker && Boolean(firstSpeaker);
+  const otherSpeakers = parsed.firstSpeaker ? parsed.otherSpeakers : [];
+
+  renderNextPreviewSpeakers({
+    firstSpeaker,
+    otherSpeakers,
+    carried,
+  });
+}
+
 function updateNextPreview({ slideId, hash }) {
   if (!nextPreviewFrame || !nextPreviewPlaceholder || !nextPreviewSection) {
     return;
@@ -2647,6 +2788,8 @@ function updateNextPreview({ slideId, hash }) {
     setNextPreviewEnd(false);
     pendingNextPreviewHash = null;
     relativeNextPreviewAttempts = 0;
+    nextPreviewSpeakersKey = null;
+    setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
     return;
   }
 
@@ -2659,8 +2802,10 @@ function updateNextPreview({ slideId, hash }) {
     setPreviewActive(nextPreviewSection, false);
     pendingNextPreviewHash = null;
     relativeNextPreviewAttempts = 0;
+    nextPreviewSpeakersKey = null;
     setNextPreviewEnd(true);
     setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
+    setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
     return;
   }
 
@@ -2669,6 +2814,7 @@ function updateNextPreview({ slideId, hash }) {
     setPreviewActive(nextPreviewSection, false);
     pendingNextPreviewHash = null;
     relativeNextPreviewAttempts = 0;
+    nextPreviewSpeakersKey = null;
     if (reason === "last") {
       setNextPreviewEnd(true);
       setNextPreviewPlaceholder(NEXT_PREVIEW_LAST_TEXT);
@@ -2679,6 +2825,7 @@ function updateNextPreview({ slideId, hash }) {
       setNextPreviewEnd(false);
       setNextPreviewPlaceholder(NEXT_PREVIEW_UNAVAILABLE_TEXT);
     }
+    setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
     return;
   }
 
@@ -2688,6 +2835,7 @@ function updateNextPreview({ slideId, hash }) {
   pendingNextPreviewHash = relativeHashPreview ? hash || slideId || "#" : null;
   relativeNextPreviewAttempts = 0;
   updateNextPreviewFrame(nextHash);
+  updateNextPreviewSpeakers(nextHash);
 }
 
 function updatePreviewAspectRatio(viewport) {
@@ -3209,13 +3357,168 @@ function attachDrawingHandlers() {
   drawCanvas.addEventListener("pointerleave", handleDrawPointerUp);
 }
 
-function setNotesDisplay(content, status) {
-  if (notesContent) {
+function normalizeSpeakerName(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function speakerIdentityKey(name) {
+  return normalizeSpeakerName(name).toLocaleLowerCase();
+}
+
+function getSpeakerHue(name) {
+  const normalized = normalizeSpeakerName(name);
+  if (!normalized) {
+    return 200;
+  }
+  let hash = 0;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = (hash * 31 + normalized.charCodeAt(index)) % 360;
+  }
+  return (hash + 360) % 360;
+}
+
+function createSpeakerChip(name, { carried = false, compact = false } = {}) {
+  const chip = document.createElement("span");
+  chip.className = "presenter__speaker-chip";
+  if (compact) {
+    chip.classList.add("presenter__speaker-chip--compact");
+  }
+  chip.style.setProperty("--speaker-hue", String(getSpeakerHue(name)));
+  chip.dataset.carried = carried ? "true" : "false";
+  chip.textContent = `@${name}`;
+  if (carried) {
+    chip.title = "Speaker carried over from previous slide";
+  }
+  return chip;
+}
+
+function parseNotesWithSpeakers(content) {
+  const notes = typeof content === "string" ? content : "";
+  const lines = notes.split(/\r?\n/u);
+  const parsedLines = [];
+  const explicitSpeakers = [];
+  const seenSpeakers = new Set();
+
+  for (const line of lines) {
+    const match = line.match(SPEAKER_MARKER_PATTERN);
+    if (!match) {
+      parsedLines.push({ type: "text", text: line });
+      continue;
+    }
+    const speaker = normalizeSpeakerName(match[1]);
+    if (!speaker) {
+      parsedLines.push({ type: "text", text: line });
+      continue;
+    }
+    const remainder = match[2] ?? "";
+    parsedLines.push({ type: "speaker", speaker, text: remainder });
+    const identity = speakerIdentityKey(speaker);
+    if (!seenSpeakers.has(identity)) {
+      seenSpeakers.add(identity);
+      explicitSpeakers.push(speaker);
+    }
+  }
+
+  const firstSpeaker = explicitSpeakers.length > 0 ? explicitSpeakers[0] : null;
+  return {
+    lines: parsedLines,
+    explicitSpeakers,
+    firstSpeaker,
+    otherSpeakers: explicitSpeakers.slice(1),
+  };
+}
+
+function renderNotesContent(parsedNotes) {
+  if (!notesContent) {
+    return;
+  }
+  notesContent.replaceChildren();
+  const fragment = document.createDocumentFragment();
+  const lines = Array.isArray(parsedNotes?.lines) ? parsedNotes.lines : [];
+  if (lines.length === 0) {
+    const line = document.createElement("div");
+    line.className = "presenter__notes-line";
+    line.textContent = "\u00a0";
+    fragment.appendChild(line);
+  } else {
+    lines.forEach((entry) => {
+      const line = document.createElement("div");
+      line.className = "presenter__notes-line";
+      if (entry?.type === "speaker") {
+        line.classList.add("presenter__notes-line--speaker");
+        line.style.setProperty("--speaker-hue", String(getSpeakerHue(entry.speaker)));
+        line.appendChild(createSpeakerChip(entry.speaker));
+        if (entry.text) {
+          const remainder = document.createElement("span");
+          remainder.className = "presenter__notes-line-text";
+          remainder.textContent = entry.text;
+          line.appendChild(remainder);
+        }
+      } else {
+        const text = entry?.text ?? "";
+        line.textContent = text || "\u00a0";
+      }
+      fragment.appendChild(line);
+    });
+  }
+  notesContent.appendChild(fragment);
+}
+
+function setCurrentSlideSpeakers({ firstSpeaker, otherSpeakers, carried = false }) {
+  currentSpeaker = firstSpeaker || null;
+
+  if (!notesSpeakers) {
+    return;
+  }
+
+  notesSpeakers.replaceChildren();
+  if (!firstSpeaker) {
+    notesSpeakers.dataset.empty = "true";
+    return;
+  }
+
+  notesSpeakers.dataset.empty = "false";
+  notesSpeakers.appendChild(createSpeakerChip(firstSpeaker, { carried, compact: true }));
+
+  if (Array.isArray(otherSpeakers) && otherSpeakers.length > 0) {
+    otherSpeakers.forEach((speaker) => {
+      notesSpeakers.appendChild(createSpeakerChip(speaker, { compact: true }));
+    });
+  }
+}
+
+function setNotesDisplay(content, status, { renderSpeakers = true } = {}) {
+  const notesText = typeof content === "string" ? content : "";
+  const parsedNotes = parseNotesWithSpeakers(notesText);
+
+  if (notesText && notesContent) {
+    renderNotesContent(parsedNotes);
+  } else if (notesContent) {
     notesContent.textContent = content;
   }
+
   if (notesStatus) {
     notesStatus.textContent = status;
   }
+
+  if (!renderSpeakers) {
+    return parsedNotes;
+  }
+
+  const firstSpeaker = parsedNotes.firstSpeaker;
+  const resolvedSpeaker = firstSpeaker || currentSpeaker;
+  const carried = !firstSpeaker && Boolean(resolvedSpeaker);
+  const others = firstSpeaker ? parsedNotes.otherSpeakers : [];
+  setCurrentSlideSpeakers({
+    firstSpeaker: resolvedSpeaker,
+    otherSpeakers: others,
+    carried,
+  });
+
+  return parsedNotes;
 }
 
 function resolveNotesKey(slideId, hash) {
@@ -3243,18 +3546,11 @@ async function fetchNotesForKey(notesKey) {
   }
   notesLoadingKey = notesKey;
   if (!hasVisibleNotes()) {
-    setNotesDisplay(NOTES_LOADING_TEXT, "Loading");
+    setNotesDisplay(NOTES_LOADING_TEXT, "Loading", { renderSpeakers: false });
   }
 
   try {
-    const url = new URL("/_/api/notes", location.origin);
-    url.searchParams.set("hash", notesKey);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to load notes (${response.status})`);
-    }
-    const data = await response.json();
-    const notes = typeof data?.notes === "string" ? data.notes : null;
+    const notes = await fetchNotesFromFiles(notesKey);
     notesCache.set(notesKey, notes);
 
     if (notesLoadingKey !== notesKey || notesSource === "none") {
@@ -3266,12 +3562,42 @@ async function fetchNotesForKey(notesKey) {
     } else {
       setNotesDisplay(NOTES_EMPTY_TEXT, "No notes");
     }
+    updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
   } catch (error) {
     if (notesLoadingKey !== notesKey) {
       return;
     }
-    setNotesDisplay("Unable to load notes.", "Error");
+    setNotesDisplay("Unable to load notes.", "Error", { renderSpeakers: false });
   }
+}
+
+function getApiNotesForKey(notesKey) {
+  const frames = [nextPreviewFrame, previewFrame];
+  for (const frame of frames) {
+    try {
+      const api = frame?.contentWindow?.miniPresenter;
+      if (api && typeof api.getNotes === "function") {
+        const value = api.getNotes(notesKey);
+        if (typeof value === "string") {
+          return value;
+        }
+      }
+    } catch {
+      // ignore frame access and deck API errors
+    }
+  }
+  return null;
+}
+
+async function fetchNotesFromFiles(notesKey) {
+  const url = new URL("/_/api/notes", location.origin);
+  url.searchParams.set("hash", notesKey);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load notes (${response.status})`);
+  }
+  const data = await response.json();
+  return typeof data?.notes === "string" ? data.notes : null;
 }
 
 function updateNotes({ slideId, hash, notes }) {
@@ -3283,14 +3609,14 @@ function updateNotes({ slideId, hash, notes }) {
   if (!notesKey) {
     return;
   }
-  lastNotesKey = notesKey;
 
   if (notesSource === "none") {
-    setNotesDisplay(NOTES_DISABLED_TEXT, "Disabled");
+    setNotesDisplay(NOTES_DISABLED_TEXT, "Disabled", { renderSpeakers: false });
+    setCurrentSlideSpeakers({ firstSpeaker: null, otherSpeakers: [] });
     return;
   }
 
-  const apiNotes = typeof notes === "string" ? notes : null;
+  const apiNotes = typeof notes === "string" && notes ? notes : null;
 
   if (notesSource !== "files" && apiNotes) {
     notesCache.set(notesKey, apiNotes);
@@ -4027,6 +4353,9 @@ if (nextPreviewFrame) {
   nextPreviewFrame.addEventListener("load", () => {
     nextPreviewReady = false;
     handleRelativeNextPreviewLoad();
+    if (nextPreviewSpeakersKey) {
+      updateNextPreviewSpeakers(nextPreviewSpeakersKey);
+    }
   });
 }
 
@@ -4046,8 +4375,10 @@ ensureTimerInterval();
 setPreviewActive(previewSection, false);
 setPreviewActive(nextPreviewSection, false);
 updatePreview(lastKnownHash);
-setNotesDisplay("Waiting for slide updates…", "Idle");
+setNotesDisplay("Waiting for slide updates…", "Idle", { renderSpeakers: false });
+setCurrentSlideSpeakers({ firstSpeaker: null, otherSpeakers: [] });
 setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
+setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
 setupPresenterLayout();
 setupPresenterFavicon();
 attachDrawingHandlers();

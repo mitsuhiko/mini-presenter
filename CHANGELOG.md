@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added `@name:` note markers with color-highlighted speaker tags in the notes panel.
+- Added next-slide speaker hints (first + additional speakers) in the presenter preview, with speaker carry-over when a slide has no marker.
+
 ## 0.4.0
 
 - Added a full presenter overlay with notes, next-slide preview, timer, navigation controls, configurable shortcuts, settings, and draggable layout splitters.
