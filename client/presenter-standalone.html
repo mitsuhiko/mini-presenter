@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mini-presenter</title>
+    <link id="presenter-favicon" rel="icon" type="image/svg+xml" />
+    <link rel="stylesheet" href="./presenter.css" />
+  </head>
+  <body>
+    <main class="presenter">
+      <section class="presenter__main" aria-label="Slide previews">
+        <div class="presenter__preview presenter__preview--current">
+          <div class="presenter__preview-title">Current slide</div>
+          <div class="presenter__preview-body">
+            <div class="presenter__preview-frame">
+              <div class="presenter__preview-stage">
+                <iframe
+                  id="preview-frame"
+                  title="Current slide preview"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                  allow="autoplay 'none'"
+                  tabindex="-1"
+                ></iframe>
+                <canvas
+                  id="preview-draw-canvas"
+                  class="presenter__preview-canvas"
+                  aria-hidden="true"
+                ></canvas>
+                <canvas
+                  id="preview-laser-canvas"
+                  class="presenter__preview-canvas presenter__preview-canvas--laser"
+                  aria-hidden="true"
+                ></canvas>
+              </div>
+            </div>
+            <div class="presenter__placeholder" id="preview-placeholder">
+              Waiting for display connection…
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="presenter__splitter presenter__splitter--vertical"
+          id="presenter-main-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize slide previews and sidebar"
+          tabindex="0"
+        ></div>
+
+        <div class="presenter__side">
+          <div class="presenter__preview presenter__preview--next">
+            <div class="presenter__preview-title">Next slide</div>
+            <div class="presenter__preview-speakers" id="next-preview-speakers" aria-live="polite"></div>
+            <div class="presenter__preview-body">
+              <div class="presenter__preview-frame">
+                <div class="presenter__preview-stage">
+                  <iframe
+                    id="next-preview-frame"
+                    title="Next slide preview"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                    allow="autoplay 'none'"
+                    tabindex="-1"
+                  ></iframe>
+                </div>
+              </div>
+              <div class="presenter__placeholder" id="next-preview-placeholder">
+                Next slide preview unavailable.
+              </div>
+            </div>
+          </div>
+
+          <section class="presenter__controls">
+            <div class="presenter__nav">
+              <button class="presenter__button presenter__button--compact" data-action="prev">◀ Prev</button>
+              <div class="presenter__slide-count" id="current-slide" aria-live="polite">—</div>
+              <button class="presenter__button presenter__button--compact" data-action="next">Next ▶</button>
+            </div>
+            <div class="presenter__tools">
+              <div class="presenter__tool-buttons" role="group" aria-label="Drawing tools">
+                <button
+                  class="presenter__button presenter__button--round presenter__button--draw presenter__tool"
+                  data-tool="draw"
+                  aria-label="Draw"
+                >
+                  ✎
+                </button>
+                <button
+                  class="presenter__button presenter__button--round presenter__button--laser presenter__tool"
+                  data-tool="laser"
+                  aria-label="Laser pointer"
+                >
+                  ✸
+                </button>
+              </div>
+              <div class="presenter__colors" role="group" aria-label="Tool colors">
+                <button class="presenter__color" data-color="#ff4d4d" style="--color: #ff4d4d;" aria-label="Red"></button>
+                <button class="presenter__color" data-color="#ff8a00" style="--color: #ff8a00;" aria-label="Orange"></button>
+                <button class="presenter__color" data-color="#ffdd4d" style="--color: #ffdd4d;" aria-label="Yellow"></button>
+                <button class="presenter__color" data-color="#35c276" style="--color: #35c276;" aria-label="Green"></button>
+                <button class="presenter__color" data-color="#4d7cff" style="--color: #4d7cff;" aria-label="Blue"></button>
+                <label class="presenter__color presenter__color--picker" aria-label="Custom color">
+                  <input type="color" id="draw-color-picker" value="#ff4d4d" />
+                </label>
+                <div class="presenter__size" role="group" aria-label="Stroke size">
+                  <label class="presenter__size-label" for="draw-size-slider">Size</label>
+                  <input
+                    class="presenter__size-slider"
+                    id="draw-size-slider"
+                    type="range"
+                    min="0.002"
+                    max="0.02"
+                    step="0.001"
+                    value="0.004"
+                  />
+                </div>
+              </div>
+              <div class="presenter__clear">
+                <button
+                  class="presenter__button presenter__button--round presenter__clear-toggle"
+                  id="clear-toggle"
+                  aria-label="Clear drawings"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-controls="clear-popover"
+                  type="button"
+                >
+                  ⌫
+                </button>
+                <div class="presenter__clear-popover" id="clear-popover" role="dialog" aria-hidden="true">
+                  <div class="presenter__clear-title">Clear drawings?</div>
+                  <div class="presenter__clear-actions">
+                    <button class="presenter__button presenter__button--tiny" id="clear-confirm" type="button">Clear</button>
+                    <button class="presenter__button presenter__button--tiny" id="clear-cancel" type="button">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <footer class="presenter__footer">
+            <div class="presenter__footer-meta">
+              <div class="presenter__timer-wrap">
+                <div class="presenter__timer-stack">
+                  <div class="presenter__timer" id="timer">00:00:00</div>
+                  <div class="presenter__timer-secondary" id="timer-secondary" aria-live="polite"></div>
+                  <div class="presenter__timer-pace" id="timer-pace" aria-live="polite"></div>
+                </div>
+                <div class="presenter__timer-actions">
+                  <button class="presenter__button presenter__button--tiny" id="timer-toggle">Pause</button>
+                  <div class="presenter__reset">
+                    <button
+                      class="presenter__button presenter__button--tiny presenter__reset-toggle"
+                      id="reset-toggle"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                      aria-controls="reset-popover"
+                      type="button"
+                    >
+                      Reset
+                    </button>
+                    <div class="presenter__reset-popover" id="reset-popover" role="dialog" aria-hidden="true">
+                      <div class="presenter__reset-title">Reset timer?</div>
+                      <div class="presenter__reset-actions">
+                        <button class="presenter__button presenter__button--tiny" id="reset-confirm" type="button">Reset</button>
+                        <button class="presenter__button presenter__button--tiny" id="reset-cancel" type="button">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="presenter__footer-status">
+              <div>Displays connected: <span id="display-count">0</span></div>
+              <div id="connection-status" class="presenter__connection">Disconnected</div>
+            </div>
+          </footer>
+          <div class="presenter__export-fab">
+            <div class="presenter__recording">
+              <button
+                class="presenter__button presenter__button--compact presenter__button--recording"
+                id="recording-toggle"
+                type="button"
+                aria-label="Record"
+                title="Record"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="recording-confirm-popover"
+              >
+                ●
+              </button>
+              <div class="presenter__record-popover" id="recording-confirm-popover" role="dialog" aria-hidden="true">
+                <div class="presenter__record-title">Replace recording?</div>
+                <div class="presenter__record-actions">
+                  <button class="presenter__button presenter__button--tiny" id="recording-confirm" type="button">Replace</button>
+                  <button class="presenter__button presenter__button--tiny" id="recording-cancel" type="button">Cancel</button>
+                </div>
+              </div>
+            </div>
+            <button class="presenter__button presenter__button--compact" id="recording-play" type="button" data-visible="false" aria-label="Play recording" title="Play recording">
+              ▶
+            </button>
+            <button class="presenter__button presenter__button--compact presenter__button--badge" id="questions-toggle" type="button">
+              <span>Questions</span>
+              <span class="presenter__button-badge" id="questions-count" aria-hidden="true"></span>
+            </button>
+            <button class="presenter__button presenter__button--compact" id="export-pdf" type="button">
+              Export PDF
+            </button>
+            <button class="presenter__button presenter__button--compact" id="settings-toggle" type="button">
+              Settings
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div
+        class="presenter__splitter presenter__splitter--horizontal"
+        id="presenter-notes-splitter"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize main area and speaker notes"
+        tabindex="0"
+      ></div>
+
+      <section class="presenter__notes" aria-label="Speaker notes">
+        <div class="presenter__notes-header">
+          <div class="presenter__notes-title">
+            Speaker notes
+            <span class="presenter__brand presenter__notes-brand" data-empty="true"></span>
+            <span class="presenter__notes-speakers" id="notes-speakers" aria-live="polite"></span>
+          </div>
+          <div class="presenter__notes-status" id="notes-status"></div>
+        </div>
+        <div class="presenter__notes-content" id="notes-content">
+          Loading notes…
+        </div>
+      </section>
+    </main>
+
+    <div class="presenter__settings-overlay" id="settings-overlay" aria-hidden="true">
+      <div class="presenter__settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="presenter__settings-header">
+          <div>
+            <div class="presenter__settings-title" id="settings-title">Presenter settings</div>
+            <div class="presenter__settings-subtitle">
+              <span id="settings-file">presenter.json</span>
+              <span class="presenter__settings-dirty" id="settings-dirty" aria-hidden="true">*</span>
+              <span class="presenter__settings-status" id="settings-status"></span>
+            </div>
+          </div>
+          <div class="presenter__settings-actions">
+            <button class="presenter__button presenter__button--tiny" id="settings-save" type="button">Save</button>
+            <button class="presenter__button presenter__button--tiny presenter__settings-toggle" id="settings-json-toggle" type="button" aria-pressed="false">Show JSON</button>
+            <button class="presenter__button presenter__button--tiny" id="settings-close" type="button">Close</button>
+          </div>
+        </div>
+
+        <div class="presenter__settings-body">
+          <div class="presenter__settings-view" data-settings-view="ui" data-active="true">
+            <div class="presenter__settings-grid">
+              <div class="presenter__settings-label">Title</div>
+              <div class="presenter__settings-control">
+                <input class="presenter__settings-input" id="settings-title-input" type="text" placeholder="Presentation title" />
+                <div class="presenter__settings-hint">Shown in the notes header and browser title.</div>
+              </div>
+
+              <div class="presenter__settings-label">Keyboard</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid">
+                  <label class="presenter__settings-subrow">
+                    <span>Next</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-next" type="text" placeholder="ArrowRight, Space" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-next">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Prev</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-prev" type="text" placeholder="ArrowLeft" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-prev">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>First</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-first" type="text" placeholder="Home" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-first">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Last</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-last" type="text" placeholder="End" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-last">⌨︎</button>
+                    </div>
+                  </label>
+                </div>
+                <div class="presenter__settings-hint">Comma-separated key names. Use Capture to record a key press.</div>
+              </div>
+
+              <div class="presenter__settings-label">Overlay shortcuts</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid">
+                  <label class="presenter__settings-subrow">
+                    <span>Fullscreen</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-fullscreen" type="text" placeholder="f" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-fullscreen">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Presenter</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-presenter" type="text" placeholder="p" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-presenter">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Questions</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-questions" type="text" placeholder="q" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-questions">⌨︎</button>
+                    </div>
+                  </label>
+                </div>
+                <div class="presenter__settings-hint">Comma-separated key names. Use modifiers like Meta+Shift+P or Capture to record.</div>
+              </div>
+
+              <div class="presenter__settings-label">Notes</div>
+              <div class="presenter__settings-control">
+                <select class="presenter__settings-select" id="settings-notes-source">
+                  <option value="auto">Auto (API → files)</option>
+                  <option value="api">API only</option>
+                  <option value="files">Files only</option>
+                  <option value="none">Disabled</option>
+                </select>
+                <div class="presenter__settings-hint">Controls how speaker notes are loaded.</div>
+              </div>
+
+              <div class="presenter__settings-label">Next preview</div>
+              <div class="presenter__settings-control presenter__settings-toggle">
+                <label>
+                  <input type="checkbox" id="settings-preview-relative" />
+                  Resolve relative hashes (e.g., <code>#slide~next</code>).
+                </label>
+              </div>
+
+              <div class="presenter__settings-label">Timer</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid presenter__settings-subgrid--timer">
+                  <label class="presenter__settings-subrow">
+                    <span>Mode</span>
+                    <select class="presenter__settings-select" id="settings-timer-mode">
+                      <option value="countup">Count up</option>
+                      <option value="countdown-total">Count down (total)</option>
+                      <option value="countdown-slide">Count down (per slide)</option>
+                    </select>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Minutes</span>
+                    <input class="presenter__settings-input" id="settings-timer-minutes" type="number" min="0" step="1" placeholder="30" />
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Seconds</span>
+                    <input class="presenter__settings-input" id="settings-timer-seconds" type="number" min="0" step="1" placeholder="1800" />
+                  </label>
+                </div>
+                <div class="presenter__settings-hint">Countdown starts after leaving the first slide (or via Start). In per-slide mode, the total timer defaults to all configured slide durations + 2s transition per slide.</div>
+              </div>
+
+              <div class="presenter__settings-label">Recording</div>
+              <div class="presenter__settings-control">
+                <div class="presenter__settings-subgrid">
+                  <label class="presenter__settings-subrow">
+                    <span>Toggle hotkey</span>
+                    <div class="presenter__settings-input-row">
+                      <input class="presenter__settings-input" id="settings-key-recording" type="text" placeholder="Shift+R" />
+                      <button class="presenter__settings-capture" type="button" data-hotkey-capture="settings-key-recording">⌨︎</button>
+                    </div>
+                  </label>
+                  <label class="presenter__settings-subrow">
+                    <span>Audio input</span>
+                    <select class="presenter__settings-select" id="settings-recording-device">
+                      <option value="">System default</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="presenter__settings-recording-actions">
+                  <div class="presenter__recording presenter__recording--settings">
+                    <button
+                      class="presenter__button presenter__button--tiny presenter__button--recording"
+                      id="settings-recording-toggle"
+                      type="button"
+                      aria-label="Record"
+                      title="Record"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                      aria-controls="settings-recording-confirm-popover"
+                    >
+                      ●
+                    </button>
+                    <div class="presenter__record-popover" id="settings-recording-confirm-popover" role="dialog" aria-hidden="true">
+                      <div class="presenter__record-title">Replace recording?</div>
+                      <div class="presenter__record-actions">
+                        <button class="presenter__button presenter__button--tiny" id="settings-recording-confirm" type="button">Replace</button>
+                        <button class="presenter__button presenter__button--tiny" id="settings-recording-cancel" type="button">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="presenter__settings-recording-status" id="settings-recording-status"></span>
+                </div>
+                <div class="presenter__settings-hint">Records slide navigation, drawings, and audio until stopped.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="presenter__settings-view" data-settings-view="json">
+            <textarea class="presenter__settings-json" id="settings-json" spellcheck="false"></textarea>
+            <div class="presenter__settings-json-status" id="settings-json-status"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="presenter__questions-overlay" id="questions-overlay" aria-hidden="true">
+      <div class="presenter__questions-panel" id="questions-panel" role="dialog" aria-modal="true" aria-labelledby="questions-title">
+        <div class="presenter__questions-header">
+          <div>
+            <div class="presenter__questions-title" id="questions-title">Audience questions</div>
+            <div class="presenter__questions-subtitle" id="questions-status"></div>
+          </div>
+          <div class="presenter__questions-actions">
+            <button class="presenter__button presenter__button--tiny" id="questions-refresh" type="button">Refresh</button>
+            <a class="presenter__button presenter__button--tiny" id="questions-open-qr" target="_blank" rel="noopener noreferrer">Open QR page</a>
+            <button class="presenter__button presenter__button--tiny" id="questions-close" type="button">Close</button>
+          </div>
+        </div>
+        <div class="presenter__questions-body">
+          <div class="presenter__questions-list" id="questions-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="presenter__questions-confirm" id="questions-confirm" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="presenter__questions-confirm-card">
+        <div class="presenter__questions-confirm-title">Delete question?</div>
+        <div class="presenter__questions-confirm-actions">
+          <button class="presenter__button presenter__button--tiny" id="questions-confirm-delete" type="button">Delete</button>
+          <button class="presenter__button presenter__button--tiny" id="questions-confirm-cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./runtime.js"></script>
+    <script src="./transport.js"></script>
+    <script>
+      (() => {
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get("mp_session") || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        const deckUrl = params.get("mp_deck") || `${window.location.origin}/`;
+        window.miniPresenterRuntime?.setRuntime?.({
+          mode: "local",
+          capabilities: {
+            questions: false,
+            export: false,
+            recordingPersistence: false,
+            configSave: false
+          },
+          local: {
+            sessionId,
+            deckUrl
+          }
+        });
+      })();
+    </script>
+    <script src="./presenter.js" type="module"></script>
+  </body>
+</html>

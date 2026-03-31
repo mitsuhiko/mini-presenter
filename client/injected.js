@@ -167,6 +167,11 @@
     return typeof factory === "function" ? factory : null;
   }
 
+  function getLocalTransportFactory() {
+    const factory = window.miniPresenterTransports?.createLocalTransport;
+    return typeof factory === "function" ? factory : null;
+  }
+
   function getRuntimeUrl(name, fallbackPath) {
     const runtime = getRuntimeHelpers();
     const url = runtime?.getUrl?.(name, location.origin);
@@ -183,6 +188,74 @@
       return url;
     }
     return new URL(fallbackPath, location.origin).toString();
+  }
+
+  function getRuntimeSnapshot() {
+    const runtime = getRuntimeHelpers();
+    const value = runtime?.getRuntime?.();
+    return value && typeof value === "object" ? value : {};
+  }
+
+  function isLocalMode() {
+    const runtime = getRuntimeHelpers();
+    return runtime?.getMode?.() === "local";
+  }
+
+  function generateSessionId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function getDeckUrlForLocalMode() {
+    const url = new URL(location.href);
+    url.searchParams.delete("_presenter_preview");
+    url.searchParams.delete("mp_mode");
+    url.searchParams.delete("mp_session");
+    url.searchParams.delete("mp_deck");
+    return url.toString();
+  }
+
+  function ensureLocalSessionId() {
+    const runtime = getRuntimeHelpers();
+    const params = new URLSearchParams(location.search);
+    const snapshot = getRuntimeSnapshot();
+    const currentLocal = snapshot.local && typeof snapshot.local === "object" ? snapshot.local : {};
+    const fromUrl = params.get("mp_session");
+
+    let id =
+      typeof currentLocal.sessionId === "string" && currentLocal.sessionId
+        ? currentLocal.sessionId
+        : typeof fromUrl === "string" && fromUrl
+          ? fromUrl
+          : null;
+
+    if (!id) {
+      id = generateSessionId();
+    }
+
+    const deckUrl =
+      typeof currentLocal.deckUrl === "string" && currentLocal.deckUrl
+        ? currentLocal.deckUrl
+        : getDeckUrlForLocalMode();
+
+    runtime?.setRuntime?.({
+      local: {
+        ...currentLocal,
+        sessionId: id,
+        deckUrl,
+      },
+    });
+
+    return id;
+  }
+
+  function buildLocalConfig() {
+    return {
+      sessionId,
+      _runtime: getRuntimeSnapshot(),
+    };
   }
 
   function sendMessage(message) {
@@ -443,8 +516,33 @@
   }
 
   function openPresenterView() {
-    const presenterUrl = getRuntimeUrl("presenter", "/_/presenter");
-    window.open(presenterUrl, "miniPresenterView", "width=1000,height=700");
+    const presenterUrl = new URL(getRuntimeUrl("presenter", "/_/presenter"), location.origin);
+
+    if (isLocalMode()) {
+      const localSessionId = sessionId || ensureLocalSessionId();
+      sessionId = localSessionId;
+      const runtime = getRuntimeHelpers();
+      const snapshot = getRuntimeSnapshot();
+      const local = snapshot.local && typeof snapshot.local === "object" ? snapshot.local : {};
+      const deckUrl =
+        typeof local.deckUrl === "string" && local.deckUrl
+          ? local.deckUrl
+          : getDeckUrlForLocalMode();
+
+      runtime?.setRuntime?.({
+        local: {
+          ...local,
+          sessionId: localSessionId,
+          deckUrl,
+        },
+      });
+
+      presenterUrl.searchParams.set("mp_mode", "local");
+      presenterUrl.searchParams.set("mp_session", localSessionId);
+      presenterUrl.searchParams.set("mp_deck", deckUrl);
+    }
+
+    window.open(presenterUrl.toString(), "miniPresenterView", "width=1000,height=700");
   }
 
   function createQuestionsOverlay() {
@@ -870,6 +968,11 @@
   }
 
   async function loadSessionId() {
+    if (isLocalMode()) {
+      sessionId = ensureLocalSessionId();
+      return;
+    }
+
     try {
       const response = await fetch(getRuntimeApiUrl("config", "/_/api/config"));
       if (!response.ok) {
@@ -925,15 +1028,29 @@
   }
 
   function connect() {
-    const createTransport = getWebSocketTransportFactory();
+    const useLocalTransport = isLocalMode();
+    const createTransport = useLocalTransport
+      ? getLocalTransportFactory()
+      : getWebSocketTransportFactory();
+
     if (!createTransport) {
       stopStatePolling();
       return;
     }
 
     if (!transport) {
+      const baseOptions = useLocalTransport
+        ? {
+            role: "display",
+            sessionId: sessionId || ensureLocalSessionId(),
+            getConfig: buildLocalConfig,
+          }
+        : {
+            url: getWebSocketUrl(),
+          };
+
       transport = createTransport({
-        url: getWebSocketUrl(),
+        ...baseOptions,
         onOpen: () => {
           const registerMessage = { type: "register", role: "display" };
           if (sessionId) {

@@ -91,7 +91,7 @@ const questionsConfirmCancel = document.querySelector("#questions-confirm-cancel
 
 const RECONNECT_DELAY_MS = 1000;
 const TIMER_INTERVAL_MS = 250;
-const PREVIEW_QUERY = "_presenter_preview=1";
+const PREVIEW_QUERY = "_presenter_preview";
 const NOTES_LOADING_TEXT = "Loading notes…";
 const NOTES_EMPTY_TEXT = "No notes for this slide.";
 const NOTES_DISABLED_TEXT = "Speaker notes disabled.";
@@ -143,6 +143,81 @@ function getRuntimeApiUrl(name, fallbackPath) {
   }
   return new URL(fallbackPath, window.location.origin).toString();
 }
+
+function getRuntimeSnapshot() {
+  const runtime = getRuntimeHelpers();
+  const value = runtime?.getRuntime?.();
+  return value && typeof value === "object" ? value : {};
+}
+
+function isLocalMode() {
+  const runtime = getRuntimeHelpers();
+  if (runtime?.getMode?.() === "local") {
+    return true;
+  }
+  const params = new URLSearchParams(window.location.search);
+  return params.get("mp_mode") === "local";
+}
+
+function getLocalSessionIdHint() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("mp_session");
+  if (typeof fromUrl === "string" && fromUrl) {
+    return fromUrl;
+  }
+  const runtimeSnapshot = getRuntimeSnapshot();
+  if (typeof runtimeSnapshot.local?.sessionId === "string" && runtimeSnapshot.local.sessionId) {
+    return runtimeSnapshot.local.sessionId;
+  }
+  return null;
+}
+
+function getPreviewDeckUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get("mp_deck");
+  if (typeof fromQuery === "string" && fromQuery) {
+    return fromQuery;
+  }
+  const runtimeSnapshot = getRuntimeSnapshot();
+  if (typeof runtimeSnapshot.local?.deckUrl === "string" && runtimeSnapshot.local.deckUrl) {
+    return runtimeSnapshot.local.deckUrl;
+  }
+  return `${window.location.origin}/`;
+}
+
+function initializeLocalRuntimeFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mp_mode") !== "local") {
+    return;
+  }
+
+  const runtime = getRuntimeHelpers();
+  if (!runtime || typeof runtime.setRuntime !== "function") {
+    return;
+  }
+
+  const snapshot = getRuntimeSnapshot();
+  const local = snapshot.local && typeof snapshot.local === "object" ? snapshot.local : {};
+  const sessionFromQuery = params.get("mp_session");
+  const deckFromQuery = params.get("mp_deck");
+
+  runtime.setRuntime({
+    mode: "local",
+    local: {
+      ...local,
+      ...(sessionFromQuery ? { sessionId: sessionFromQuery } : {}),
+      ...(deckFromQuery ? { deckUrl: deckFromQuery } : {}),
+    },
+    capabilities: {
+      questions: false,
+      export: false,
+      recordingPersistence: false,
+      configSave: false,
+    },
+  });
+}
+
+initializeLocalRuntimeFromQuery();
 
 function addPresenterKey(urlString) {
   const url = new URL(urlString, window.location.origin);
@@ -629,6 +704,10 @@ function getPresenterKey() {
     return urlKey.trim();
   }
 
+  if (params.get("mp_mode") === "local") {
+    return null;
+  }
+
   if (isLocalHostname(window.location.hostname)) {
     return null;
   }
@@ -1056,6 +1135,11 @@ function getWebSocketUrl() {
 
 function getWebSocketTransportFactory() {
   const factory = window.miniPresenterTransports?.createWebSocketTransport;
+  return typeof factory === "function" ? factory : null;
+}
+
+function getLocalTransportFactory() {
+  const factory = window.miniPresenterTransports?.createLocalTransport;
   return typeof factory === "function" ? factory : null;
 }
 
@@ -2844,8 +2928,12 @@ function setPreviewFrameSrc(frame, hash, isNext) {
   if (!frame) {
     return;
   }
-  const previewUrl = `${location.origin}/?${PREVIEW_QUERY}`;
-  frame.src = `${previewUrl}${hash}`;
+
+  const deckUrl = new URL(getPreviewDeckUrl(), window.location.href);
+  deckUrl.searchParams.set(PREVIEW_QUERY, "1");
+  deckUrl.hash = hash || "";
+  frame.src = deckUrl.toString();
+
   if (isNext) {
     nextPreviewReady = false;
   } else {
@@ -4234,15 +4322,43 @@ function scheduleReconnect() {
 }
 
 function connect() {
-  const createTransport = getWebSocketTransportFactory();
+  const useLocalTransport = isLocalMode();
+  const createTransport = useLocalTransport
+    ? getLocalTransportFactory()
+    : getWebSocketTransportFactory();
+
   if (!createTransport) {
     updateConnectionStatus(false);
     return;
   }
 
   if (!transport) {
+    let localSessionId = useLocalTransport ? getLocalSessionIdHint() : null;
+    if (useLocalTransport && !localSessionId) {
+      localSessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      getRuntimeHelpers()?.setRuntime?.({
+        local: {
+          ...(getRuntimeSnapshot().local ?? {}),
+          sessionId: localSessionId,
+        },
+      });
+    }
+
+    if (localSessionId) {
+      sessionId = localSessionId;
+    }
+
+    const baseOptions = useLocalTransport
+      ? {
+          role: "presenter",
+          sessionId: localSessionId,
+        }
+      : {
+          url: getWebSocketUrl(),
+        };
+
     transport = createTransport({
-      url: getWebSocketUrl(),
+      ...baseOptions,
       onOpen: () => {
         updateConnectionStatus(true);
         const registerMessage = { type: "register", role: "presenter" };
