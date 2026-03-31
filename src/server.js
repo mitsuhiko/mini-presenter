@@ -51,6 +51,42 @@ const MIME_TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
+const DEFAULT_RUNTIME_ROUTES = {
+  ws: "/_/ws",
+  presenter: "/_/presenter",
+  questions: "/_/questions",
+  questionsQr: "/_/questions/qr",
+  api: {
+    config: "/_/api/config",
+    notes: "/_/api/notes",
+    export: "/_/api/export",
+    recording: "/_/api/recording",
+    recordingAudio: "/_/api/recording/audio",
+    questions: "/_/api/questions",
+    questionsVote: "/_/api/questions/vote",
+    questionsDelete: "/_/api/questions/delete",
+    questionsAnswer: "/_/api/questions/answer",
+    questionsQr: "/_/api/questions/qr",
+  },
+};
+
+function buildRuntimeMetadata({ rootDir, rootUrl }) {
+  const localDeck = Boolean(rootDir) && !rootUrl;
+  return {
+    mode: "server",
+    routes: {
+      ...DEFAULT_RUNTIME_ROUTES,
+      api: { ...DEFAULT_RUNTIME_ROUTES.api },
+    },
+    capabilities: {
+      questions: localDeck,
+      export: true,
+      recordingPersistence: localDeck,
+      configSave: localDeck,
+    },
+  };
+}
+
 function getMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   return MIME_TYPES[ext] || "application/octet-stream";
@@ -579,11 +615,20 @@ export async function startServer({
     rootUrl: normalizedRootUrl,
   });
   const sessionId = randomUUID();
+  const runtimeMetadata = buildRuntimeMetadata({
+    rootDir,
+    rootUrl: normalizedRootUrl,
+  });
   let runtimeConfig = {};
   if (externalUrl) {
     runtimeConfig.externalUrl = externalUrl;
   }
-  const buildMergedConfig = () => ({ ...(presenterConfig ?? {}), ...runtimeConfig, sessionId });
+  const buildMergedConfig = () => ({
+    ...(presenterConfig ?? {}),
+    ...runtimeConfig,
+    sessionId,
+    _runtime: runtimeMetadata,
+  });
   let mergedConfig = buildMergedConfig();
   const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
@@ -793,7 +838,12 @@ export async function startServer({
           return;
         }
 
-        const { sessionId: _sessionId, ...rest } = payload;
+        const {
+          sessionId: _sessionId,
+          _runtime: _runtime,
+          runtime: _legacyRuntime,
+          ...rest
+        } = payload;
         presenterConfig = rest;
         mergedConfig = buildMergedConfig();
 

@@ -141,7 +141,23 @@
     }
   }
 
+  function getRuntimeHelpers() {
+    return window.miniPresenterRuntime ?? null;
+  }
+
+  function applyRuntimeConfig(config) {
+    const runtime = getRuntimeHelpers();
+    if (runtime && typeof runtime.applyConfig === "function") {
+      runtime.applyConfig(config);
+    }
+  }
+
   function getWebSocketUrl() {
+    const runtime = getRuntimeHelpers();
+    const runtimeUrl = runtime?.getWebSocketUrl?.(location);
+    if (typeof runtimeUrl === "string" && runtimeUrl) {
+      return runtimeUrl;
+    }
     const protocol = location.protocol === "https:" ? "wss" : "ws";
     return `${protocol}://${location.host}/_/ws`;
   }
@@ -149,6 +165,24 @@
   function getWebSocketTransportFactory() {
     const factory = window.miniPresenterTransports?.createWebSocketTransport;
     return typeof factory === "function" ? factory : null;
+  }
+
+  function getRuntimeUrl(name, fallbackPath) {
+    const runtime = getRuntimeHelpers();
+    const url = runtime?.getUrl?.(name, location.origin);
+    if (typeof url === "string" && url) {
+      return url;
+    }
+    return new URL(fallbackPath, location.origin).toString();
+  }
+
+  function getRuntimeApiUrl(name, fallbackPath) {
+    const runtime = getRuntimeHelpers();
+    const url = runtime?.getApiUrl?.(name, location.origin);
+    if (typeof url === "string" && url) {
+      return url;
+    }
+    return new URL(fallbackPath, location.origin).toString();
   }
 
   function sendMessage(message) {
@@ -409,13 +443,12 @@
   }
 
   function openPresenterView() {
-    const url = new URL("/_/presenter", location.origin);
-    window.open(url.href, "miniPresenterView", "width=1000,height=700");
+    const presenterUrl = getRuntimeUrl("presenter", "/_/presenter");
+    window.open(presenterUrl, "miniPresenterView", "width=1000,height=700");
   }
 
   function createQuestionsOverlay() {
-    const questionsUrl = new URL("/_/questions", location.origin).toString();
-    const qrPageUrl = new URL("/_/questions/qr", location.origin).toString();
+    const questionsUrl = getRuntimeUrl("questions", "/_/questions");
 
     const overlay = document.createElement("div");
     overlay.id = "mini-presenter-questions";
@@ -454,7 +487,7 @@
     title.style.cssText = "font-size: 2rem; font-weight: 700;";
 
     const img = document.createElement("img");
-    img.src = "/_/api/questions/qr";
+    img.src = getRuntimeApiUrl("questionsQr", "/_/api/questions/qr");
     img.alt = "QR code for questions";
     img.style.cssText = "width: min(60vw, 280px); height: auto; border-radius: 16px; border: 4px solid #f3f3f3; background: #fff; padding: 12px;";
 
@@ -821,6 +854,7 @@
       drawingOverlay?.renderDrawMessage(message);
     } else if (message.type === "config") {
       if (message.config) {
+        applyRuntimeConfig(message.config);
         applyShortcutConfig(message.config);
         if (typeof message.config.sessionId === "string") {
           sessionId = message.config.sessionId;
@@ -837,15 +871,16 @@
 
   async function loadSessionId() {
     try {
-      const response = await fetch("/_/api/config");
+      const response = await fetch(getRuntimeApiUrl("config", "/_/api/config"));
       if (!response.ok) {
         return;
       }
       const data = await response.json();
-      if (data && typeof data.sessionId === "string") {
-        sessionId = data.sessionId;
-      }
       if (data) {
+        applyRuntimeConfig(data);
+        if (typeof data.sessionId === "string") {
+          sessionId = data.sessionId;
+        }
         applyShortcutConfig(data);
       }
     } catch (error) {

@@ -15,12 +15,25 @@ let transport = null;
 let reconnectTimer = null;
 let wsConnected = false;
 
+function getRuntimeHelpers() {
+  return window.miniPresenterRuntime ?? null;
+}
+
+function getRuntimeApiUrl(name, fallbackPath) {
+  const runtime = getRuntimeHelpers();
+  const url = runtime?.getApiUrl?.(name, window.location.origin);
+  if (typeof url === "string" && url) {
+    return new URL(url, window.location.origin);
+  }
+  return new URL(fallbackPath, window.location.origin);
+}
+
 function buildQuestionsApiUrl() {
-  return new URL("/_/api/questions", window.location.origin);
+  return getRuntimeApiUrl("questions", "/_/api/questions");
 }
 
 function buildVoteUrl() {
-  return new URL("/_/api/questions/vote", window.location.origin);
+  return getRuntimeApiUrl("questionsVote", "/_/api/questions/vote");
 }
 
 function loadVoteState() {
@@ -214,6 +227,11 @@ function stopPolling() {
 }
 
 function getWebSocketUrl() {
+  const runtime = getRuntimeHelpers();
+  const runtimeUrl = runtime?.getWebSocketUrl?.(location);
+  if (typeof runtimeUrl === "string" && runtimeUrl) {
+    return runtimeUrl;
+  }
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${location.host}/_/ws`;
 }

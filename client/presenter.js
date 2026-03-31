@@ -115,30 +115,60 @@ const STOP_SYMBOL = "■";
 
 const presenterKey = getPresenterKey();
 
-function buildExportUrl(format) {
-  const url = new URL("/_/api/export", window.location.origin);
-  if (format) {
-    url.searchParams.set("format", format);
+function getRuntimeHelpers() {
+  return window.miniPresenterRuntime ?? null;
+}
+
+function applyRuntimeConfig(config) {
+  const runtime = getRuntimeHelpers();
+  if (runtime && typeof runtime.applyConfig === "function") {
+    runtime.applyConfig(config);
   }
+}
+
+function getRuntimeUrl(name, fallbackPath) {
+  const runtime = getRuntimeHelpers();
+  const url = runtime?.getUrl?.(name, window.location.origin);
+  if (typeof url === "string" && url) {
+    return url;
+  }
+  return new URL(fallbackPath, window.location.origin).toString();
+}
+
+function getRuntimeApiUrl(name, fallbackPath) {
+  const runtime = getRuntimeHelpers();
+  const url = runtime?.getApiUrl?.(name, window.location.origin);
+  if (typeof url === "string" && url) {
+    return url;
+  }
+  return new URL(fallbackPath, window.location.origin).toString();
+}
+
+function addPresenterKey(urlString) {
+  const url = new URL(urlString, window.location.origin);
   if (presenterKey) {
     url.searchParams.set("key", presenterKey);
+  }
+  return url;
+}
+
+function buildExportUrl(format) {
+  const url = addPresenterKey(getRuntimeApiUrl("export", "/_/api/export"));
+  if (format) {
+    url.searchParams.set("format", format);
   }
   return url.toString();
 }
 
 function buildConfigUrl() {
-  const url = new URL("/_/api/config", window.location.origin);
-  if (presenterKey) {
-    url.searchParams.set("key", presenterKey);
-  }
-  return url.toString();
+  return addPresenterKey(getRuntimeApiUrl("config", "/_/api/config")).toString();
 }
 
 function buildRecordingUrl(pathname = "") {
   const suffix = pathname.startsWith("/") ? pathname : pathname ? `/${pathname}` : "";
-  const url = new URL(`/_/api/recording${suffix}`, window.location.origin);
-  if (presenterKey) {
-    url.searchParams.set("key", presenterKey);
+  const url = addPresenterKey(getRuntimeApiUrl("recording", "/_/api/recording"));
+  if (suffix) {
+    url.pathname = `${url.pathname.replace(/\/$/, "")}${suffix}`;
   }
   return url.toString();
 }
@@ -637,7 +667,12 @@ function sanitizeConfig(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return {};
   }
-  const { sessionId: _sessionId, ...rest } = config;
+  const {
+    sessionId: _sessionId,
+    _runtime: _runtime,
+    runtime: _legacyRuntime,
+    ...rest
+  } = config;
   return cloneConfig(rest);
 }
 
@@ -1010,6 +1045,11 @@ let cachedRecordingData = null;
 let recordingStatusTimer = null;
 
 function getWebSocketUrl() {
+  const runtime = getRuntimeHelpers();
+  const runtimeUrl = runtime?.getWebSocketUrl?.(location);
+  if (typeof runtimeUrl === "string" && runtimeUrl) {
+    return runtimeUrl;
+  }
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${location.host}/_/ws`;
 }
@@ -1774,6 +1814,7 @@ function updatePresenterTitleDisplay(title) {
 }
 
 function applyConfig(config) {
+  applyRuntimeConfig(config);
   const title = typeof config?.title === "string" ? config.title : null;
   configTitle = title;
   if (title) {
@@ -2247,27 +2288,19 @@ function closeSettings() {
 }
 
 function buildQuestionsQrPageUrl() {
-  return new URL("/_/questions/qr", window.location.origin).toString();
+  return getRuntimeUrl("questionsQr", "/_/questions/qr");
 }
 
 function buildQuestionsApiUrl() {
-  return new URL("/_/api/questions", window.location.origin).toString();
+  return getRuntimeApiUrl("questions", "/_/api/questions");
 }
 
 function buildQuestionsDeleteUrl() {
-  const url = new URL("/_/api/questions/delete", window.location.origin);
-  if (presenterKey) {
-    url.searchParams.set("key", presenterKey);
-  }
-  return url.toString();
+  return addPresenterKey(getRuntimeApiUrl("questionsDelete", "/_/api/questions/delete")).toString();
 }
 
 function buildQuestionsAnswerUrl() {
-  const url = new URL("/_/api/questions/answer", window.location.origin);
-  if (presenterKey) {
-    url.searchParams.set("key", presenterKey);
-  }
-  return url.toString();
+  return addPresenterKey(getRuntimeApiUrl("questionsAnswer", "/_/api/questions/answer")).toString();
 }
 
 function setQuestionsAvailability(available) {
@@ -4004,7 +4037,7 @@ function getApiNotesForKey(notesKey) {
 }
 
 async function fetchNotesFromFiles(notesKey) {
-  const url = new URL("/_/api/notes", location.origin);
+  const url = new URL(getRuntimeApiUrl("notes", "/_/api/notes"), location.origin);
   url.searchParams.set("hash", notesKey);
   const response = await fetch(url);
   if (!response.ok) {
