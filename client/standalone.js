@@ -91,34 +91,20 @@
     return params.get("mp_mode") === "local";
   }
 
-  function buildServerConfigUrl() {
-    if (scriptDataset.config && typeof scriptDataset.config === "string") {
-      return new URL(scriptDataset.config, root.location.href).toString();
+  function waitForServerInjectionMarker() {
+    if (root.__miniPresenterDisplayInjected === true) {
+      return Promise.resolve();
     }
-    const base =
-      typeof root.location.origin === "string" && root.location.origin !== "null"
-        ? root.location.origin
-        : root.location.href;
-    return new URL("/_/api/config", base).toString();
-  }
 
-  function looksLikeMiniPresenterConfig(payload) {
-    if (!payload || typeof payload !== "object") {
-      return false;
+    if (document.readyState === "loading") {
+      return new Promise((resolve) => {
+        document.addEventListener("DOMContentLoaded", () => {
+          resolve();
+        }, { once: true });
+      });
     }
-    const runtime = payload._runtime;
-    if (!runtime || typeof runtime !== "object") {
-      return false;
-    }
-    if (runtime.mode !== "server") {
-      return false;
-    }
-    return (
-      typeof payload.sessionId === "string" &&
-      payload.sessionId.length > 0 &&
-      typeof runtime.routes?.ws === "string" &&
-      typeof runtime.routes?.presenter === "string"
-    );
+
+    return Promise.resolve();
   }
 
   async function shouldNoopBecauseMiniPresenterServer(params) {
@@ -128,40 +114,9 @@
     if (isExplicitLocalSession(params)) {
       return false;
     }
-    if (root.__miniPresenterDisplayInjected === true) {
-      return true;
-    }
-    if (typeof root.fetch !== "function") {
-      return false;
-    }
 
-    const configUrl = buildServerConfigUrl();
-    const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
-    let timeout = null;
-    if (abortController) {
-      timeout = setTimeout(() => {
-        abortController.abort();
-      }, 750);
-    }
-
-    try {
-      const response = await root.fetch(configUrl, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: abortController?.signal,
-      });
-      if (!response.ok) {
-        return false;
-      }
-      const payload = await response.json().catch(() => null);
-      return looksLikeMiniPresenterConfig(payload);
-    } catch (error) {
-      return false;
-    } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    }
+    await waitForServerInjectionMarker();
+    return root.__miniPresenterDisplayInjected === true;
   }
 
   async function bootstrap() {
