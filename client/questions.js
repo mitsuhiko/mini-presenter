@@ -11,7 +11,7 @@ const VOTE_STORAGE_KEY = "miniPresenterQuestionVotes";
 const WS_RECONNECT_DELAY_MS = 1000;
 let pollTimer = null;
 let votedQuestions = new Set();
-let ws = null;
+let transport = null;
 let reconnectTimer = null;
 let wsConnected = false;
 
@@ -147,9 +147,7 @@ async function fetchQuestions({ silent = false } = {}) {
       setStatus("Questions are unavailable for this presentation.");
       submitButton?.setAttribute("disabled", "true");
       stopPolling();
-      if (ws) {
-        ws.close();
-      }
+      transport?.close();
       return;
     }
     if (!response.ok) {
@@ -220,6 +218,11 @@ function getWebSocketUrl() {
   return `${protocol}://${location.host}/_/ws`;
 }
 
+function getWebSocketTransportFactory() {
+  const factory = window.miniPresenterTransports?.createWebSocketTransport;
+  return typeof factory === "function" ? factory : null;
+}
+
 function scheduleReconnect() {
   if (reconnectTimer) {
     return;
@@ -231,38 +234,48 @@ function scheduleReconnect() {
 }
 
 function connectWebSocket() {
-  if (ws) {
-    ws.close();
+  const createTransport = getWebSocketTransportFactory();
+  if (!createTransport) {
+    wsConnected = false;
+    schedulePolling();
+    return;
   }
-  ws = new WebSocket(getWebSocketUrl());
-  ws.addEventListener("open", () => {
-    wsConnected = true;
-    stopPolling();
-    ws.send(JSON.stringify({ type: "register", role: "questions" }));
-  });
-  ws.addEventListener("message", (event) => {
-    let message;
-    try {
-      message = JSON.parse(event.data);
-    } catch (error) {
-      return;
-    }
-    if (message.type === "questions") {
-      const questions = Array.isArray(message.questions) ? message.questions : [];
-      renderQuestions(questions);
-      setStatus("Live update");
-    }
-  });
-  ws.addEventListener("close", () => {
-    wsConnected = false;
-    schedulePolling();
-    scheduleReconnect();
-  });
-  ws.addEventListener("error", () => {
-    wsConnected = false;
-    schedulePolling();
-    scheduleReconnect();
-  });
+
+  if (!transport) {
+    transport = createTransport({
+      url: getWebSocketUrl(),
+      onOpen: () => {
+        wsConnected = true;
+        stopPolling();
+        transport?.send({ type: "register", role: "questions" });
+      },
+      onMessage: (event) => {
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch (error) {
+          return;
+        }
+        if (message.type === "questions") {
+          const questions = Array.isArray(message.questions) ? message.questions : [];
+          renderQuestions(questions);
+          setStatus("Live update");
+        }
+      },
+      onClose: () => {
+        wsConnected = false;
+        schedulePolling();
+        scheduleReconnect();
+      },
+      onError: () => {
+        wsConnected = false;
+        schedulePolling();
+        scheduleReconnect();
+      },
+    });
+  }
+
+  transport.connect();
 }
 
 form?.addEventListener("submit", async (event) => {

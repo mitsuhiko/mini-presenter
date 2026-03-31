@@ -916,7 +916,7 @@ document.addEventListener(
   true
 );
 
-let ws = null;
+let transport = null;
 let reconnectTimer = null;
 const TIMER_MODE_COUNTUP = "countup";
 const TIMER_MODE_COUNTDOWN_TOTAL = "countdown-total";
@@ -1014,11 +1014,13 @@ function getWebSocketUrl() {
   return `${protocol}://${location.host}/_/ws`;
 }
 
+function getWebSocketTransportFactory() {
+  const factory = window.miniPresenterTransports?.createWebSocketTransport;
+  return typeof factory === "function" ? factory : null;
+}
+
 function sendMessage(message) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    return;
-  }
-  ws.send(JSON.stringify(message));
+  transport?.send(message);
 }
 
 function sendCommand(action, hash) {
@@ -4199,31 +4201,36 @@ function scheduleReconnect() {
 }
 
 function connect() {
-  if (ws) {
-    ws.close();
+  const createTransport = getWebSocketTransportFactory();
+  if (!createTransport) {
+    updateConnectionStatus(false);
+    return;
   }
 
-  ws = new WebSocket(getWebSocketUrl());
-  ws.addEventListener("open", () => {
-    updateConnectionStatus(true);
-    const registerMessage = { type: "register", role: "presenter" };
-    if (presenterKey) {
-      registerMessage.key = presenterKey;
-    }
-    sendMessage(registerMessage);
-  });
+  if (!transport) {
+    transport = createTransport({
+      url: getWebSocketUrl(),
+      onOpen: () => {
+        updateConnectionStatus(true);
+        const registerMessage = { type: "register", role: "presenter" };
+        if (presenterKey) {
+          registerMessage.key = presenterKey;
+        }
+        sendMessage(registerMessage);
+      },
+      onMessage: handleMessage,
+      onClose: () => {
+        updateConnectionStatus(false);
+        scheduleReconnect();
+      },
+      onError: () => {
+        updateConnectionStatus(false);
+        scheduleReconnect();
+      },
+    });
+  }
 
-  ws.addEventListener("message", handleMessage);
-
-  ws.addEventListener("close", () => {
-    updateConnectionStatus(false);
-    scheduleReconnect();
-  });
-
-  ws.addEventListener("error", () => {
-    updateConnectionStatus(false);
-    scheduleReconnect();
-  });
+  transport.connect();
 }
 
 function handleKeyboard(event) {
@@ -4831,7 +4838,5 @@ window.addEventListener("beforeunload", () => {
   }
   stopPlayback();
   stopRecordingStream();
-  if (ws) {
-    ws.close();
-  }
+  transport?.close();
 });

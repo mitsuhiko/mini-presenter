@@ -22,7 +22,7 @@
     questions: ["q"],
   };
 
-  let ws = null;
+  let transport = null;
   let reconnectTimer = null;
   let statePoller = null;
   let sessionId = null;
@@ -146,11 +146,13 @@
     return `${protocol}://${location.host}/_/ws`;
   }
 
+  function getWebSocketTransportFactory() {
+    const factory = window.miniPresenterTransports?.createWebSocketTransport;
+    return typeof factory === "function" ? factory : null;
+  }
+
   function sendMessage(message) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    ws.send(JSON.stringify(message));
+    transport?.send(message);
   }
 
   function getSlideId() {
@@ -888,32 +890,37 @@
   }
 
   function connect() {
-    if (ws) {
-      ws.close();
+    const createTransport = getWebSocketTransportFactory();
+    if (!createTransport) {
+      stopStatePolling();
+      return;
     }
 
-    ws = new WebSocket(getWebSocketUrl());
-    ws.addEventListener("open", () => {
-      const registerMessage = { type: "register", role: "display" };
-      if (sessionId) {
-        registerMessage.sessionId = sessionId;
-      }
-      sendMessage(registerMessage);
-      reportState();
-      startStatePolling();
-    });
+    if (!transport) {
+      transport = createTransport({
+        url: getWebSocketUrl(),
+        onOpen: () => {
+          const registerMessage = { type: "register", role: "display" };
+          if (sessionId) {
+            registerMessage.sessionId = sessionId;
+          }
+          sendMessage(registerMessage);
+          reportState();
+          startStatePolling();
+        },
+        onMessage: handleMessage,
+        onClose: () => {
+          stopStatePolling();
+          scheduleReconnect();
+        },
+        onError: () => {
+          stopStatePolling();
+          scheduleReconnect();
+        },
+      });
+    }
 
-    ws.addEventListener("message", handleMessage);
-
-    ws.addEventListener("close", () => {
-      stopStatePolling();
-      scheduleReconnect();
-    });
-
-    ws.addEventListener("error", () => {
-      stopStatePolling();
-      scheduleReconnect();
-    });
+    transport.connect();
   }
 
   patchHistory("replaceState");

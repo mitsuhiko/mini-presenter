@@ -1,4 +1,4 @@
-const SCRIPT_TAG = '<script src="/_/client/injected.js"></script>';
+const SCRIPT_TAG = '<script src="/_/client/transport.js"></script><script src="/_/client/injected.js"></script>';
 
 export function injectPresenterScript(html) {
   if (!html) {
