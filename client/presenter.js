@@ -1,6 +1,8 @@
 const presenterRoot = document.querySelector(".presenter");
 const presenterMain = document.querySelector(".presenter__main");
 const timerDisplay = document.querySelector("#timer");
+const timerSecondaryDisplay = document.querySelector("#timer-secondary");
+const timerPaceDisplay = document.querySelector("#timer-pace");
 const currentSlideDisplay = document.querySelector("#current-slide");
 const displayCountDisplay = document.querySelector("#display-count");
 const connectionStatus = document.querySelector("#connection-status");
@@ -916,14 +918,25 @@ document.addEventListener(
 
 let ws = null;
 let reconnectTimer = null;
+const TIMER_MODE_COUNTUP = "countup";
+const TIMER_MODE_COUNTDOWN_TOTAL = "countdown-total";
+const TIMER_MODE_COUNTDOWN_SLIDE = "countdown-slide";
+
 let timerInterval = null;
 let timerRunning = false;
 let timerStarted = false;
 let timerElapsed = 0;
 let lastTick = 0;
-let timerMode = "countup";
-let countdownDuration = 0;
+let timerMode = TIMER_MODE_COUNTUP;
 let countdownStartSlide = null;
+let timerSlideDurations = new Map();
+let timerSlideDurationsFromDom = new Map();
+let timerDefaultSlideDuration = 0;
+let timerTransitionDuration = 2000;
+let timerExplicitTotalDuration = 0;
+let currentSlideCountdownDuration = 0;
+let currentSlideCountdownStartElapsed = 0;
+let completedSlideTiming = [];
 let sessionId = null;
 let lastSlideId = null;
 let lastKnownHash = "#";
@@ -1444,6 +1457,307 @@ function resolveCountdownDuration(timerConfig) {
   return 0;
 }
 
+function resolveTimerMode(timerConfig) {
+  const mode = timerConfig?.mode;
+  if (mode === "countdown") {
+    return TIMER_MODE_COUNTDOWN_TOTAL;
+  }
+  if (mode === TIMER_MODE_COUNTDOWN_TOTAL || mode === TIMER_MODE_COUNTDOWN_SLIDE) {
+    return mode;
+  }
+  return TIMER_MODE_COUNTUP;
+}
+
+function normalizeTimerSlideKey(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
+function resolveTimerSlideDurations(timerConfig) {
+  const map = new Map();
+  const raw = timerConfig?.slides;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return map;
+  }
+  for (const [key, value] of Object.entries(raw)) {
+    const normalizedKey = normalizeTimerSlideKey(key);
+    const seconds = Number(value);
+    if (!normalizedKey || !Number.isFinite(seconds) || seconds <= 0) {
+      continue;
+    }
+    map.set(normalizedKey, Math.round(seconds * 1000));
+  }
+  return map;
+}
+
+function parseSlideTimeToMilliseconds(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0 ? Math.round(value * 1000) : null;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^\d+(?:\.\d+)?$/u.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : null;
+  }
+
+  const parts = trimmed.split(":").map((part) => Number(part));
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isFinite(part) || part < 0)) {
+    return null;
+  }
+
+  let seconds = 0;
+  if (parts.length === 2) {
+    seconds = parts[0] * 60 + parts[1];
+  } else {
+    seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  return seconds > 0 ? Math.round(seconds * 1000) : null;
+}
+
+function refreshSlideDurationsFromPreview() {
+  if (!previewFrame) {
+    return;
+  }
+  const nextMap = new Map();
+  try {
+    const doc = previewFrame.contentDocument;
+    if (!doc) {
+      return;
+    }
+    const nodes = doc.querySelectorAll("[data-slide-time]");
+    nodes.forEach((node) => {
+      const durationMs = parseSlideTimeToMilliseconds(node.getAttribute("data-slide-time"));
+      if (!durationMs) {
+        return;
+      }
+
+      const candidates = [
+        node.getAttribute("data-slide-hash"),
+        node.getAttribute("data-slide-id"),
+        node.getAttribute("data-slide"),
+        node.getAttribute("id"),
+      ];
+
+      candidates.forEach((candidate) => {
+        const normalized = normalizeTimerSlideKey(candidate ?? "");
+        if (normalized) {
+          nextMap.set(normalized, durationMs);
+        }
+      });
+    });
+  } catch {
+    return;
+  }
+
+  timerSlideDurationsFromDom = nextMap;
+  updateTimerDisplay();
+}
+
+function resolveTimerSlideDurationByHash(hash) {
+  const normalizedHash = normalizeTimerSlideKey(stripRelativeSuffix(hash || ""));
+  if (!normalizedHash) {
+    return timerDefaultSlideDuration;
+  }
+
+  const candidates = [normalizedHash];
+  const dotIndex = normalizedHash.indexOf(".");
+  if (dotIndex > 1) {
+    candidates.push(normalizedHash.slice(0, dotIndex));
+  }
+
+  for (const candidate of candidates) {
+    const direct = timerSlideDurations.get(candidate);
+    if (typeof direct === "number") {
+      return direct;
+    }
+    const domDirect = timerSlideDurationsFromDom.get(candidate);
+    if (typeof domDirect === "number") {
+      return domDirect;
+    }
+    const withoutHash = candidate.slice(1);
+    const bare = timerSlideDurations.get(withoutHash);
+    if (typeof bare === "number") {
+      return bare;
+    }
+    const domBare = timerSlideDurationsFromDom.get(withoutHash);
+    if (typeof domBare === "number") {
+      return domBare;
+    }
+  }
+  return timerDefaultSlideDuration;
+}
+
+function resolveDerivedTotalCountdownDuration() {
+  const order = apiSlideOrder;
+  if (Array.isArray(order) && order.length > 0) {
+    const slidesDuration = order.reduce(
+      (total, hash) => total + resolveTimerSlideDurationByHash(hash),
+      0
+    );
+    return slidesDuration + Math.max(0, order.length - 1) * timerTransitionDuration;
+  }
+
+  if (timerSlideDurations.size > 0) {
+    const slidesDuration = Array.from(timerSlideDurations.values()).reduce((total, value) => total + value, 0);
+    return slidesDuration + Math.max(0, timerSlideDurations.size - 1) * timerTransitionDuration;
+  }
+
+  if (timerSlideDurationsFromDom.size > 0) {
+    const slidesDuration = Array.from(timerSlideDurationsFromDom.values()).reduce(
+      (total, value) => total + value,
+      0
+    );
+    return slidesDuration + Math.max(0, timerSlideDurationsFromDom.size - 1) * timerTransitionDuration;
+  }
+
+  return 0;
+}
+
+function getTotalCountdownDuration() {
+  if (timerExplicitTotalDuration > 0) {
+    return timerExplicitTotalDuration;
+  }
+  return resolveDerivedTotalCountdownDuration();
+}
+
+function getSlideCountdownRemaining() {
+  if (currentSlideCountdownDuration <= 0) {
+    return null;
+  }
+  const elapsedOnSlide = Math.max(0, timerElapsed - currentSlideCountdownStartElapsed);
+  return currentSlideCountdownDuration - elapsedOnSlide;
+}
+
+function getCurrentSlideElapsed() {
+  return Math.max(0, timerElapsed - currentSlideCountdownStartElapsed);
+}
+
+function estimatePlannedRemaining() {
+  const order = apiSlideOrder || getSlideOrderFromPreview();
+  if (!Array.isArray(order) || order.length === 0) {
+    return null;
+  }
+  const index = findSlideIndex(order, lastKnownHash || lastSlideId || "#");
+  if (index < 0) {
+    return null;
+  }
+
+  const currentRemaining = Math.max(0, getSlideCountdownRemaining() ?? 0);
+  let futureDuration = 0;
+  for (let idx = index + 1; idx < order.length; idx += 1) {
+    futureDuration += resolveTimerSlideDurationByHash(order[idx]);
+  }
+  const transitionsRemaining = Math.max(0, order.length - index - 1) * timerTransitionDuration;
+  return currentRemaining + futureDuration + transitionsRemaining;
+}
+
+function describePaceTrend() {
+  const recent = completedSlideTiming.slice(-3).filter((entry) => entry.budgetMs > 0);
+  if (recent.length === 0) {
+    return "steady";
+  }
+  const budget = recent.reduce((total, entry) => total + entry.budgetMs, 0);
+  const actual = recent.reduce((total, entry) => total + entry.actualMs, 0);
+  if (budget <= 0) {
+    return "steady";
+  }
+  const ratio = actual / budget;
+  if (ratio > 1.08) {
+    return "slowing down";
+  }
+  if (ratio < 0.92) {
+    return "speeding up";
+  }
+  return "steady";
+}
+
+function updatePaceDisplay() {
+  if (!timerPaceDisplay) {
+    return;
+  }
+
+  timerPaceDisplay.classList.remove(
+    "presenter__timer-pace--good",
+    "presenter__timer-pace--warn",
+    "presenter__timer-pace--danger"
+  );
+
+  if (!isCountdownMode()) {
+    timerPaceDisplay.textContent = "";
+    return;
+  }
+
+  const totalDuration = getTotalCountdownDuration();
+  const plannedRemaining = estimatePlannedRemaining();
+  if (totalDuration <= 0 || plannedRemaining == null) {
+    timerPaceDisplay.textContent = "";
+    return;
+  }
+
+  const totalRemaining = totalDuration - timerElapsed;
+  const bufferMs = totalRemaining - plannedRemaining;
+  const absBufferMs = Math.abs(bufferMs);
+  let state = "On pace";
+  let paceLevel = "neutral";
+  if (bufferMs > 5000) {
+    state = `Ahead ${formatDuration(absBufferMs)}`;
+    paceLevel = "good";
+  } else if (bufferMs < -5000) {
+    state = `Behind ${formatDuration(absBufferMs)}`;
+    paceLevel = "warn";
+  }
+
+  const slideRemaining = getSlideCountdownRemaining();
+  if (slideRemaining != null && slideRemaining < 0) {
+    const overBy = formatDuration(-slideRemaining);
+    if (bufferMs >= 0) {
+      timerPaceDisplay.textContent = `${state} · Over slide ${overBy} (buffer intact)`;
+      if (paceLevel === "good") {
+        timerPaceDisplay.classList.add("presenter__timer-pace--good");
+      }
+    } else {
+      timerPaceDisplay.textContent = `${state} · Over slide ${overBy} (need catch-up)`;
+      timerPaceDisplay.classList.add("presenter__timer-pace--danger");
+      return;
+    }
+  } else {
+    timerPaceDisplay.textContent = `${state} · ${describePaceTrend()}`;
+  }
+
+  if (bufferMs > 5000) {
+    timerPaceDisplay.classList.add("presenter__timer-pace--good");
+  } else if (bufferMs < -15000) {
+    timerPaceDisplay.classList.add("presenter__timer-pace--danger");
+  } else if (bufferMs < -5000) {
+    timerPaceDisplay.classList.add("presenter__timer-pace--warn");
+  }
+}
+
+function isCountdownMode() {
+  return (
+    timerMode === TIMER_MODE_COUNTDOWN_TOTAL ||
+    timerMode === TIMER_MODE_COUNTDOWN_SLIDE
+  );
+}
+
+function updateCurrentSlideTimerState(hash) {
+  currentSlideCountdownDuration = resolveTimerSlideDurationByHash(hash);
+  currentSlideCountdownStartElapsed = timerElapsed;
+}
+
 function updatePresenterTitleDisplay(title) {
   if (!brandDisplay) {
     return;
@@ -1486,16 +1800,47 @@ function applyConfig(config) {
   sessionId = typeof config?.sessionId === "string" ? config.sessionId : null;
 
   const timerConfig = config?.timer ?? {};
-  const nextTimerMode = timerConfig?.mode === "countdown" ? "countdown" : "countup";
-  const nextCountdownDuration = resolveCountdownDuration(timerConfig);
-  const timerChanged = nextTimerMode !== timerMode || nextCountdownDuration !== countdownDuration;
+  const nextTimerMode = resolveTimerMode(timerConfig);
+  const nextExplicitTotalDuration = resolveCountdownDuration(timerConfig);
+  const nextSlideDurations = resolveTimerSlideDurations(timerConfig);
+  const defaultSlideSeconds = Number(timerConfig.defaultSlideSeconds);
+  const nextDefaultSlideDuration =
+    Number.isFinite(defaultSlideSeconds) && defaultSlideSeconds > 0
+      ? Math.round(defaultSlideSeconds * 1000)
+      : 0;
+  const transitionSeconds = Number(timerConfig.transitionSeconds);
+  const nextTransitionDuration =
+    Number.isFinite(transitionSeconds) && transitionSeconds >= 0
+      ? Math.round(transitionSeconds * 1000)
+      : 2000;
+
+  const slideDurationsChanged =
+    stableStringify(Array.from(nextSlideDurations.entries())) !==
+    stableStringify(Array.from(timerSlideDurations.entries()));
+  const timerChanged =
+    nextTimerMode !== timerMode ||
+    nextExplicitTotalDuration !== timerExplicitTotalDuration ||
+    nextDefaultSlideDuration !== timerDefaultSlideDuration ||
+    nextTransitionDuration !== timerTransitionDuration ||
+    slideDurationsChanged;
+
   timerMode = nextTimerMode;
-  countdownDuration = nextCountdownDuration;
+  timerExplicitTotalDuration = nextExplicitTotalDuration;
+  timerDefaultSlideDuration = nextDefaultSlideDuration;
+  timerTransitionDuration = nextTransitionDuration;
+  timerSlideDurations = nextSlideDurations;
+
   if (timerChanged) {
     countdownStartSlide = null;
     timerElapsed = 0;
     timerRunning = false;
     timerStarted = false;
+    currentSlideCountdownDuration = 0;
+    currentSlideCountdownStartElapsed = 0;
+    completedSlideTiming = [];
+    if (lastKnownHash) {
+      updateCurrentSlideTimerState(lastKnownHash);
+    }
   }
   updateTimerDisplay();
   updateTimerToggleLabel();
@@ -1587,7 +1932,7 @@ function syncSettingsForm() {
 
   const timerConfig = draftConfig.timer ?? {};
   if (settingsTimerMode) {
-    settingsTimerMode.value = timerConfig?.mode === "countdown" ? "countdown" : "countup";
+    settingsTimerMode.value = resolveTimerMode(timerConfig);
   }
   if (settingsTimerMinutes) {
     const minutes = Number(timerConfig?.durationMinutes);
@@ -1733,9 +2078,9 @@ function updatePreviewConfig(nextConfig, enabled) {
 
 function updateTimerConfig(nextConfig) {
   const timer = nextConfig.timer && typeof nextConfig.timer === "object" ? { ...nextConfig.timer } : {};
-  const mode = settingsTimerMode?.value === "countdown" ? "countdown" : "countup";
-  if (mode === "countdown") {
-    timer.mode = "countdown";
+  const mode = settingsTimerMode?.value;
+  if (mode === TIMER_MODE_COUNTDOWN_TOTAL || mode === TIMER_MODE_COUNTDOWN_SLIDE) {
+    timer.mode = mode;
   } else {
     delete timer.mode;
   }
@@ -2173,18 +2518,24 @@ function toggleQuestionsOverlay() {
 
 keyboardMap = buildKeyboardMap(DEFAULT_KEYBOARD);
 
-function formatDuration(ms) {
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
+function formatDuration(ms, { allowNegative = false, padSign = false } = {}) {
+  const numeric = Number.isFinite(ms) ? ms : 0;
+  const isNegative = allowNegative && numeric < 0;
+  const absoluteSeconds = Math.trunc(Math.abs(numeric) / 1000);
+  const hours = Math.floor(absoluteSeconds / 3600);
+  const minutes = Math.floor((absoluteSeconds % 3600) / 60);
+  const seconds = absoluteSeconds % 60;
   const pad = (value) => String(value).padStart(2, "0");
-  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  const sign = isNegative ? "−" : padSign ? "\u2007" : "";
+  return `${sign}${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
 function getTimerDisplayValue() {
-  if (timerMode === "countdown" && countdownDuration > 0) {
-    return Math.max(0, countdownDuration - timerElapsed);
+  if (timerMode === TIMER_MODE_COUNTDOWN_TOTAL || timerMode === TIMER_MODE_COUNTDOWN_SLIDE) {
+    const totalDuration = getTotalCountdownDuration();
+    if (totalDuration > 0) {
+      return Math.max(0, totalDuration - timerElapsed);
+    }
   }
   return timerElapsed;
 }
@@ -2193,7 +2544,7 @@ function updateTimerToggleLabel() {
   if (!timerToggleButton) {
     return;
   }
-  if (!timerStarted && timerMode === "countdown") {
+  if (!timerStarted && isCountdownMode()) {
     timerToggleButton.textContent = "Start";
     return;
   }
@@ -2201,7 +2552,64 @@ function updateTimerToggleLabel() {
 }
 
 function updateTimerDisplay() {
-  timerDisplay.textContent = formatDuration(getTimerDisplayValue());
+  if (!timerDisplay) {
+    return;
+  }
+  const primaryValue =
+    timerMode === TIMER_MODE_COUNTDOWN_SLIDE
+      ? getSlideCountdownRemaining() ?? 0
+      : getTimerDisplayValue();
+
+  timerDisplay.classList.remove("presenter__timer--warn", "presenter__timer--danger");
+  timerSecondaryDisplay?.classList.remove("presenter__timer-secondary--warn", "presenter__timer-secondary--danger");
+
+  timerDisplay.textContent = formatDuration(primaryValue, {
+    allowNegative: timerMode === TIMER_MODE_COUNTDOWN_SLIDE,
+    padSign: timerMode === TIMER_MODE_COUNTDOWN_SLIDE,
+  });
+
+  if (!timerSecondaryDisplay) {
+    updatePaceDisplay();
+    return;
+  }
+
+  if (timerMode === TIMER_MODE_COUNTDOWN_TOTAL) {
+    const slideRemaining = getSlideCountdownRemaining();
+    if (slideRemaining != null && currentSlideCountdownDuration > 0) {
+      timerSecondaryDisplay.textContent = `Slide ${formatDuration(slideRemaining, {
+        allowNegative: true,
+        padSign: true,
+      })} / ${formatDuration(currentSlideCountdownDuration)}`;
+      if (slideRemaining <= 5000) {
+        timerSecondaryDisplay.classList.add("presenter__timer-secondary--danger");
+      } else if (slideRemaining <= 10000) {
+        timerSecondaryDisplay.classList.add("presenter__timer-secondary--warn");
+      }
+    } else {
+      timerSecondaryDisplay.textContent = "";
+    }
+    updatePaceDisplay();
+    return;
+  }
+
+  if (timerMode === TIMER_MODE_COUNTDOWN_SLIDE) {
+    if (primaryValue <= 5000) {
+      timerDisplay.classList.add("presenter__timer--danger");
+    } else if (primaryValue <= 10000) {
+      timerDisplay.classList.add("presenter__timer--warn");
+    }
+    const totalDuration = getTotalCountdownDuration();
+    if (totalDuration > 0) {
+      timerSecondaryDisplay.textContent = `Total ${formatDuration(Math.max(0, totalDuration - timerElapsed))}`;
+    } else {
+      timerSecondaryDisplay.textContent = "";
+    }
+    updatePaceDisplay();
+    return;
+  }
+
+  timerSecondaryDisplay.textContent = "";
+  updatePaceDisplay();
 }
 
 function formatSlideDisplay(slideId) {
@@ -2325,7 +2733,7 @@ function pauseTimer() {
 }
 
 function toggleTimer() {
-  if (!timerStarted && timerMode === "countdown") {
+  if (!timerStarted && isCountdownMode()) {
     timerStarted = true;
     startTimer();
     ensureTimerInterval();
@@ -2344,6 +2752,8 @@ function toggleTimer() {
 
 function resetTimer() {
   timerElapsed = 0;
+  completedSlideTiming = [];
+  currentSlideCountdownStartElapsed = 0;
   lastTick = Date.now();
   updateTimerDisplay();
   updateTimerToggleLabel();
@@ -2356,8 +2766,9 @@ function tickTimer() {
   const now = Date.now();
   timerElapsed += now - lastTick;
   lastTick = now;
-  if (timerMode === "countdown" && countdownDuration > 0 && timerElapsed >= countdownDuration) {
-    timerElapsed = countdownDuration;
+  const totalDuration = getTotalCountdownDuration();
+  if (timerMode === TIMER_MODE_COUNTDOWN_TOTAL && totalDuration > 0 && timerElapsed >= totalDuration) {
+    timerElapsed = totalDuration;
     pauseTimer();
   }
   updateTimerDisplay();
@@ -2607,6 +3018,7 @@ function getSlideOrderFromPreview() {
         apiSlideOrder = filtered.length > 0 ? filtered : null;
         updateSlideIndicator(lastSlideId);
         updatePresenterFavicon();
+        updateTimerDisplay();
       }
     }
   } catch (error) {
@@ -3685,14 +4097,23 @@ function updateSlideState({
 
   if (stateKey !== lastSlideId || nextHash !== previousHash) {
     const previousSlideId = lastSlideId;
+    if (timerStarted && currentSlideCountdownDuration > 0) {
+      const actualMs = Math.max(0, timerElapsed - currentSlideCountdownStartElapsed);
+      completedSlideTiming.push({ budgetMs: currentSlideCountdownDuration, actualMs });
+      if (completedSlideTiming.length > 20) {
+        completedSlideTiming = completedSlideTiming.slice(-20);
+      }
+    }
     lastSlideId = stateKey;
+    updateCurrentSlideTimerState(nextHash);
     recordSlideState({ slideId, hash: nextHash });
     clearDrawings({ send: true });
     if (!timerStarted) {
-      if (timerMode === "countdown") {
+      if (isCountdownMode()) {
         if (!countdownStartSlide) {
           countdownStartSlide = stateKey;
           updateTimerToggleLabel();
+          updateTimerDisplay();
           return;
         }
         if (previousSlideId === countdownStartSlide) {
@@ -4345,7 +4766,12 @@ if (previewFrame) {
   previewFrame.addEventListener("load", () => {
     previewReady = false;
     syncTitleFromPreview();
+    refreshSlideDurationsFromPreview();
+    if (lastKnownHash) {
+      updateCurrentSlideTimerState(lastKnownHash);
+    }
     updateNextPreview({ slideId: lastSlideId, hash: lastKnownHash });
+    updateTimerDisplay();
   });
 }
 

@@ -132,8 +132,14 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
     "relativeHash": true
   },
   "timer": {
-    "mode": "countdown",
-    "durationMinutes": 30
+    "mode": "countdown-slide",
+    "transitionSeconds": 2,
+    "durationMinutes": 30,
+    "slides": {
+      "#intro": 20,
+      "#agenda": 45,
+      "#demo": 180
+    }
   },
   "draw": {
     "color": "#ff4d4d",
@@ -154,10 +160,31 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
 - `shortcuts`: Presenter shortcuts for fullscreen, presenter view, questions, and recording.
 - `notes.source`: `api`, `files`, or `none` (default: `api` + file fallback).
 - `preview.relativeHash`: Enable `#<hash>~next` preview resolution.
-- `timer.mode`: `countup` (default) or `countdown`.
-- `timer.durationMinutes` / `timer.durationSeconds`: Total countdown duration.
-  The countdown starts after leaving the first slide and can be started manually
-  with the presenter timer button.
+- `timer.mode`: `countup` (default), `countdown-total`, or `countdown-slide`.
+  `countdown` is still accepted as an alias for `countdown-total`.
+- `timer.durationMinutes` / `timer.durationSeconds`: Explicit total countdown duration.
+  If omitted in `countdown-slide` mode, the total is derived from all known
+  slide durations plus transition time between slides.
+- `timer.slides`: Optional per-slide duration map in **seconds**.
+  Keys are slide hashes (for example `#intro`, `#2`, `#2.1`).
+- `timer.transitionSeconds`: Transition time added between slides when deriving
+  the total countdown (default: `2`).
+- `timer.defaultSlideSeconds`: Optional fallback duration for slides without an
+  explicit time.
+
+For countdown modes, the timer is armed on the first slide and starts
+automatically after advancing to the second slide. You can also start it
+manually with the timer button.
+
+Per-slide times can also be read from your deck HTML using `data-slide-time`.
+Use seconds (`"45"`) or `MM:SS` / `HH:MM:SS` (for example `"1:30"`):
+
+```html
+<section id="intro" data-slide-time="20"></section>
+<section id="demo" data-slide-time="1:30"></section>
+```
+
+Elements can be matched by `id`, `data-slide-id`, or `data-slide-hash`.
 - `draw.color` / `draw.size`: Defaults for drawing color and size (ratio of slide width).
 - `laser.color` / `laser.size`: Defaults for laser color and size (ratio of slide width).
 - `recording.deviceId`: Optional audio input device id (set in presenter settings).

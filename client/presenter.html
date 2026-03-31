@@ -144,7 +144,11 @@
           <footer class="presenter__footer">
             <div class="presenter__footer-meta">
               <div class="presenter__timer-wrap">
-                <div class="presenter__timer" id="timer">00:00:00</div>
+                <div class="presenter__timer-stack">
+                  <div class="presenter__timer" id="timer">00:00:00</div>
+                  <div class="presenter__timer-secondary" id="timer-secondary" aria-live="polite"></div>
+                  <div class="presenter__timer-pace" id="timer-pace" aria-live="polite"></div>
+                </div>
                 <div class="presenter__timer-actions">
                   <button class="presenter__button presenter__button--tiny" id="timer-toggle">Pause</button>
                   <div class="presenter__reset">
@@ -353,7 +357,8 @@
                     <span>Mode</span>
                     <select class="presenter__settings-select" id="settings-timer-mode">
                       <option value="countup">Count up</option>
-                      <option value="countdown">Count down</option>
+                      <option value="countdown-total">Count down (total)</option>
+                      <option value="countdown-slide">Count down (per slide)</option>
                     </select>
                   </label>
                   <label class="presenter__settings-subrow">
@@ -365,7 +370,7 @@
                     <input class="presenter__settings-input" id="settings-timer-seconds" type="number" min="0" step="1" placeholder="1800" />
                   </label>
                 </div>
-                <div class="presenter__settings-hint">Countdown starts after the first slide or via the timer button.</div>
+                <div class="presenter__settings-hint">Countdown starts after leaving the first slide (or via Start). In per-slide mode, the total timer defaults to all configured slide durations + 2s transition per slide.</div>
               </div>
 
               <div class="presenter__settings-label">Recording</div>
