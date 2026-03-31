@@ -59,7 +59,7 @@ For static/CDN decks, you can use a local-tab mode that avoids the server comple
 Include the standalone bootstrap in your deck HTML:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/mini-presenter/client/standalone.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/mitsuhiko/mini-presenter@main/client/standalone.js"></script>
 ```
 
 This enables presenter control over local tabs using `BroadcastChannel` with a
