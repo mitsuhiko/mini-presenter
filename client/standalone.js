@@ -222,6 +222,36 @@
     popup.document.close();
   }
 
+  function parseWindowDimension(features, key, fallback) {
+    if (!features || typeof features !== "string") {
+      return fallback;
+    }
+    const pattern = new RegExp(`(?:^|,)\\s*${key}\\s*=\\s*(\\d+)`, "i");
+    const match = features.match(pattern);
+    if (!match) {
+      return fallback;
+    }
+    const value = Number.parseInt(match[1], 10);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  }
+
+  function tryNormalizePopupSize(popup, features) {
+    if (!popup || popup.closed) {
+      return;
+    }
+
+    const width = parseWindowDimension(features, "width", 1000);
+    const height = parseWindowDimension(features, "height", 700);
+
+    try {
+      if (typeof popup.resizeTo === "function") {
+        popup.resizeTo(width, height);
+      }
+    } catch (error) {
+      // ignore window manager restrictions
+    }
+  }
+
   function openPresenterWindow({ sessionId, deckUrl, windowName = "miniPresenterView", features = "width=1000,height=700" } = {}) {
     const resolvedSessionId =
       typeof sessionId === "string" && sessionId ? sessionId : createSessionId();
@@ -232,6 +262,8 @@
     if (!popup) {
       return null;
     }
+
+    tryNormalizePopupSize(popup, features);
 
     writePopupDocument(
       popup,

@@ -600,6 +600,19 @@ function setupPresenterLayout() {
   window.addEventListener("resize", applyPresenterLayout);
 }
 
+function stabilizeInitialLayout() {
+  applyPresenterLayout();
+  requestAnimationFrame(() => {
+    applyPresenterLayout();
+  });
+  setTimeout(() => {
+    applyPresenterLayout();
+  }, 120);
+  setTimeout(() => {
+    applyPresenterLayout();
+  }, 420);
+}
+
 function applyShortcutConfig(config) {
   const shortcuts = config?.shortcuts ?? {};
   shortcutConfig = {
@@ -5155,6 +5168,7 @@ if (timerResetButton) {
 }
 
 document.addEventListener("keydown", handleKeyboard);
+window.addEventListener("load", stabilizeInitialLayout, { once: true });
 
 updateTimerDisplay();
 updateConnectionStatus(false);
@@ -5167,6 +5181,7 @@ setCurrentSlideSpeakers({ firstSpeaker: null, otherSpeakers: [] });
 setNextPreviewPlaceholder(NEXT_PREVIEW_WAITING_TEXT);
 setNextPreviewSpeakersPlaceholder(NEXT_PREVIEW_SPEAKER_UNKNOWN_TEXT);
 setupPresenterLayout();
+stabilizeInitialLayout();
 setupPresenterFavicon();
 attachDrawingHandlers();
 syncToolControls();
