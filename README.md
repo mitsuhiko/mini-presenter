@@ -53,6 +53,46 @@ When you pass a URL, mini-presenter proxies the remote site through the local se
 Use `--watch` to enable file watching and auto-reload on HTML/CSS/JS changes.
 Use `--funnel` to create an anonymous Cloudflare tunnel (requires `cloudflared`).
 
+## Standalone local mode (no Node server)
+
+For static/CDN decks, you can use a local-tab mode that avoids the server completely.
+Include the standalone bootstrap in your deck HTML:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/mini-presenter/client/standalone.js"></script>
+```
+
+This enables presenter control over local tabs using `BroadcastChannel` with a
+`postMessage`/`MessageChannel` fallback. The presenter opens from
+`presenter-standalone.html` and communicates directly with the slide tab.
+
+### Capability matrix
+
+| Feature | Server mode | Local mode |
+|---|---:|---:|
+| Slide control + sync | ✅ | ✅ |
+| Current preview | ✅ | ✅ |
+| Next preview | ✅ | ✅* |
+| Draw / laser | ✅ | ✅ |
+| Timer | ✅ | ✅ |
+| Q&A | ✅ | ❌ |
+| Export API | ✅ | ❌ |
+| Recording persistence | ✅ | ❌ |
+| Save `presenter.json` | ✅ | ❌ |
+
+\*Next preview works best when presenter and deck are same-origin and the deck
+exposes `getSlideList()`/relative hash support.
+
+### Manual verification checklist
+
+- **Server mode:** `npx mini-presenter ./slides`
+  - open `/` and `/_/presenter`
+  - verify navigation, draw/laser, notes, export, questions, recording save, config save
+- **Local mode:** static deck + `standalone.js`
+  - open presenter from in-slide shortcut/button
+  - verify navigation sync, previews, draw/laser, timer
+  - verify server-only actions are disabled and labeled accordingly
+
 ## Export slides (PDF/PNG)
 
 The exporter will start a dedicated Chrome instance with remote debugging automatically.

@@ -248,6 +248,24 @@ function buildRecordingUrl(pathname = "") {
   return url.toString();
 }
 
+function readRuntimeCapabilities() {
+  const runtimeCaps = getRuntimeSnapshot().capabilities;
+  if (!runtimeCaps || typeof runtimeCaps !== "object") {
+    return {
+      questions: true,
+      export: true,
+      recordingPersistence: true,
+      configSave: true,
+    };
+  }
+  return {
+    questions: runtimeCaps.questions !== false,
+    export: runtimeCaps.export !== false,
+    recordingPersistence: runtimeCaps.recordingPersistence !== false,
+    configSave: runtimeCaps.configSave !== false,
+  };
+}
+
 const DEFAULT_KEYBOARD = {
   next: ["ArrowRight", "PageDown", " ", "Spacebar"],
   prev: ["ArrowLeft", "PageUp"],
@@ -1122,6 +1140,10 @@ let playbackFrame = null;
 let playbackStopRequested = false;
 let cachedRecordingData = null;
 let recordingStatusTimer = null;
+let capabilityQuestions = true;
+let capabilityExport = true;
+let capabilityRecordingPersistence = true;
+let capabilityConfigSave = true;
 
 function getWebSocketUrl() {
   const runtime = getRuntimeHelpers();
@@ -1141,6 +1163,59 @@ function getWebSocketTransportFactory() {
 function getLocalTransportFactory() {
   const factory = window.miniPresenterTransports?.createLocalTransport;
   return typeof factory === "function" ? factory : null;
+}
+
+function refreshCapabilityFlags() {
+  const capabilities = readRuntimeCapabilities();
+  capabilityQuestions = capabilities.questions;
+  capabilityExport = capabilities.export;
+  capabilityRecordingPersistence = capabilities.recordingPersistence;
+  capabilityConfigSave = capabilities.configSave;
+}
+
+function applyCapabilityState() {
+  setQuestionsAvailability(capabilityQuestions);
+
+  if (exportButton) {
+    exportButton.disabled = !capabilityExport;
+    exportButton.title = capabilityExport
+      ? "Export PDF"
+      : "Export is available in server mode";
+  }
+
+  if (settingsFileLabel) {
+    settingsFileLabel.textContent = capabilityConfigSave
+      ? "presenter.json"
+      : "Runtime config (read-only)";
+  }
+
+  if (!capabilityConfigSave && settingsStatus && !settingsStatus.textContent) {
+    settingsStatus.textContent = "Config save is available in server mode.";
+  }
+
+  if (settingsRecordingDevice) {
+    settingsRecordingDevice.disabled = !capabilityRecordingPersistence;
+    settingsRecordingDevice.title = capabilityRecordingPersistence
+      ? ""
+      : "Recording is available in server mode";
+  }
+
+  if (settingsNotesSource) {
+    const filesOption = settingsNotesSource.querySelector('option[value="files"]');
+    if (filesOption) {
+      filesOption.disabled = isLocalMode();
+    }
+    if (isLocalMode() && settingsNotesSource.value === "files") {
+      settingsNotesSource.value = "api";
+    }
+  }
+
+  if (!capabilityRecordingPersistence && settingsRecordingStatus && !settingsRecordingStatus.textContent) {
+    settingsRecordingStatus.textContent = "Recording is available in server mode.";
+  }
+
+  updateRecordingControls();
+  updateSettingsDirtyState();
 }
 
 function sendMessage(message) {
@@ -1210,32 +1285,52 @@ function setRecordingAvailability(available, data = null) {
 }
 
 function updateRecordingControls() {
+  const recordingEnabled = capabilityRecordingPersistence;
   const isBusy = recordingSaving || recordingPlaybackActive;
+
   if (recordingToggleButton) {
     recordingToggleButton.textContent = recordingActive ? STOP_SYMBOL : RECORD_SYMBOL;
-    recordingToggleButton.disabled = isBusy;
+    recordingToggleButton.disabled = !recordingEnabled || isBusy;
     recordingToggleButton.dataset.active = recordingActive ? "true" : "false";
     recordingToggleButton.setAttribute("aria-label", recordingActive ? "Stop recording" : "Record");
-    recordingToggleButton.setAttribute("title", recordingActive ? "Stop recording" : "Record");
+    recordingToggleButton.setAttribute(
+      "title",
+      recordingEnabled
+        ? recordingActive
+          ? "Stop recording"
+          : "Record"
+        : "Recording is available in server mode"
+    );
   }
   if (settingsRecordingToggle) {
     settingsRecordingToggle.textContent = recordingActive ? STOP_SYMBOL : RECORD_SYMBOL;
-    settingsRecordingToggle.disabled = isBusy;
+    settingsRecordingToggle.disabled = !recordingEnabled || isBusy;
     settingsRecordingToggle.dataset.active = recordingActive ? "true" : "false";
     settingsRecordingToggle.setAttribute("aria-label", recordingActive ? "Stop recording" : "Record");
-    settingsRecordingToggle.setAttribute("title", recordingActive ? "Stop recording" : "Record");
+    settingsRecordingToggle.setAttribute(
+      "title",
+      recordingEnabled
+        ? recordingActive
+          ? "Stop recording"
+          : "Record"
+        : "Recording is available in server mode"
+    );
   }
   if (recordingPlayButton) {
     recordingPlayButton.textContent = recordingPlaybackActive ? STOP_SYMBOL : PLAY_SYMBOL;
-    recordingPlayButton.disabled = !recordingAvailable || recordingActive || recordingSaving;
-    recordingPlayButton.dataset.visible = recordingAvailable ? "true" : "false";
+    recordingPlayButton.disabled = !recordingEnabled || !recordingAvailable || recordingActive || recordingSaving;
+    recordingPlayButton.dataset.visible = recordingEnabled && recordingAvailable ? "true" : "false";
     recordingPlayButton.setAttribute(
       "aria-label",
       recordingPlaybackActive ? "Stop playback" : "Play recording"
     );
     recordingPlayButton.setAttribute(
       "title",
-      recordingPlaybackActive ? "Stop playback" : "Play recording"
+      recordingEnabled
+        ? recordingPlaybackActive
+          ? "Stop playback"
+          : "Play recording"
+        : "Playback is available in server mode"
     );
   }
 }
@@ -1266,6 +1361,14 @@ function shouldConfirmRecording() {
 }
 
 function requestRecordingStart(source) {
+  if (!capabilityRecordingPersistence) {
+    setRecordingStatus("Recording is available in server mode.", {
+      level: "error",
+      timeout: 3000,
+    });
+    return;
+  }
+
   if (recordingActive) {
     stopRecording();
     return;
@@ -1282,6 +1385,10 @@ function requestRecordingStart(source) {
 }
 
 async function saveRecordingSession({ audioBlob, durationMs }) {
+  if (!capabilityRecordingPersistence) {
+    throw new Error("Recording is available in server mode.");
+  }
+
   const mimeType = recordingAudioMimeType || "audio/webm";
   const audioResponse = await fetch(buildRecordingUrl("audio"), {
     method: "PUT",
@@ -1321,6 +1428,14 @@ async function saveRecordingSession({ audioBlob, durationMs }) {
 }
 
 async function startRecording() {
+  if (!capabilityRecordingPersistence) {
+    setRecordingStatus("Recording is available in server mode.", {
+      level: "error",
+      timeout: 3000,
+    });
+    return;
+  }
+
   if (recordingActive || recordingSaving || recordingPlaybackActive) {
     return;
   }
@@ -1407,6 +1522,14 @@ async function stopRecording() {
 }
 
 function toggleRecording() {
+  if (!capabilityRecordingPersistence) {
+    setRecordingStatus("Recording is available in server mode.", {
+      level: "error",
+      timeout: 3000,
+    });
+    return;
+  }
+
   if (recordingActive) {
     stopRecording();
   } else {
@@ -1415,6 +1538,12 @@ function toggleRecording() {
 }
 
 async function fetchRecordingData({ force = false } = {}) {
+  if (!capabilityRecordingPersistence) {
+    cachedRecordingData = null;
+    setRecordingAvailability(false);
+    return null;
+  }
+
   if (!force && cachedRecordingData) {
     return cachedRecordingData;
   }
@@ -1527,6 +1656,14 @@ async function startPlayback() {
 }
 
 function togglePlayback() {
+  if (!capabilityRecordingPersistence) {
+    setRecordingStatus("Playback is available in server mode.", {
+      level: "error",
+      timeout: 3000,
+    });
+    return;
+  }
+
   if (recordingPlaybackActive) {
     stopPlayback();
   } else {
@@ -1899,6 +2036,9 @@ function updatePresenterTitleDisplay(title) {
 
 function applyConfig(config) {
   applyRuntimeConfig(config);
+  refreshCapabilityFlags();
+  applyCapabilityState();
+
   const title = typeof config?.title === "string" ? config.title : null;
   configTitle = title;
   if (title) {
@@ -1919,6 +2059,9 @@ function applyConfig(config) {
     notesSource = source;
   } else {
     notesSource = "auto";
+  }
+  if (isLocalMode() && (notesSource === "auto" || notesSource === "files")) {
+    notesSource = "api";
   }
 
   const previewConfig = config?.preview ?? config?.previews ?? {};
@@ -2009,7 +2152,10 @@ function updateSettingsDirtyState() {
     settingsDirtyIndicator.dataset.visible = settingsDirty ? "true" : "false";
   }
   if (settingsSaveButton) {
-    settingsSaveButton.disabled = !settingsDirty || !jsonIsValid;
+    settingsSaveButton.disabled = !capabilityConfigSave || !settingsDirty || !jsonIsValid;
+    settingsSaveButton.title = capabilityConfigSave
+      ? "Save"
+      : "Config save is available in server mode";
   }
 }
 
@@ -2120,7 +2266,9 @@ function updateDraftConfig(mutator, { source = "form" } = {}) {
   mutator(nextConfig);
   draftConfig = nextConfig;
   if (settingsStatus) {
-    settingsStatus.textContent = "";
+    settingsStatus.textContent = capabilityConfigSave
+      ? ""
+      : "Config save is available in server mode.";
   }
   applyDraftConfig({ source });
 }
@@ -2391,10 +2539,16 @@ function setQuestionsAvailability(available) {
   questionsAvailable = available;
   if (questionsToggleButton) {
     questionsToggleButton.style.display = available ? "" : "none";
+    questionsToggleButton.title = available
+      ? "Questions"
+      : "Questions are available in server mode";
   }
   if (!available) {
     closeQuestionsOverlay();
     stopQuestionsPolling();
+    if (questionsStatus && capabilityQuestions === false) {
+      questionsStatus.textContent = "Questions are available in server mode.";
+    }
   }
 }
 
@@ -2562,6 +2716,11 @@ async function markQuestionAnswered(id, answered) {
 }
 
 async function fetchQuestions({ silent = false } = {}) {
+  if (!capabilityQuestions) {
+    setQuestionsAvailability(false);
+    return;
+  }
+
   try {
     const response = await fetch(buildQuestionsApiUrl());
     if (response.status === 404 || response.status === 501) {
@@ -2590,7 +2749,7 @@ async function fetchQuestions({ silent = false } = {}) {
 }
 
 function startQuestionsPolling() {
-  if (questionsPollingTimer || !questionsAvailable) {
+  if (!capabilityQuestions || questionsPollingTimer || !questionsAvailable) {
     return;
   }
   questionsPollingTimer = setInterval(() => {
@@ -4125,6 +4284,10 @@ function getApiNotesForKey(notesKey) {
 }
 
 async function fetchNotesFromFiles(notesKey) {
+  if (isLocalMode()) {
+    return null;
+  }
+
   const url = new URL(getRuntimeApiUrl("notes", "/_/api/notes"), location.origin);
   url.searchParams.set("hash", notesKey);
   const response = await fetch(url);
@@ -4443,6 +4606,13 @@ function handleKeyboard(event) {
 }
 
 async function handleSaveConfig() {
+  if (!capabilityConfigSave) {
+    if (settingsStatus) {
+      settingsStatus.textContent = "Config save is available in server mode.";
+    }
+    return;
+  }
+
   if (!settingsSaveButton || settingsSaveButton.disabled) {
     return;
   }
@@ -4482,6 +4652,13 @@ async function handleSaveConfig() {
 }
 
 async function handleExportPdf() {
+  if (!capabilityExport) {
+    if (exportButton) {
+      exportButton.title = "Export is available in server mode";
+    }
+    return;
+  }
+
   if (!exportButton || exportButton.disabled) {
     return;
   }
@@ -4966,7 +5143,8 @@ setupPresenterFavicon();
 attachDrawingHandlers();
 syncToolControls();
 setActiveTool("none");
-updateRecordingControls();
+refreshCapabilityFlags();
+applyCapabilityState();
 fetchRecordingData({ force: true });
 refreshRecordingDevices();
 if (navigator.mediaDevices?.addEventListener) {

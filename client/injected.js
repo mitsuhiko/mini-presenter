@@ -201,6 +201,14 @@
     return runtime?.getMode?.() === "local";
   }
 
+  function hasRuntimeCapability(name) {
+    const capabilities = getRuntimeSnapshot().capabilities;
+    if (!capabilities || typeof capabilities !== "object") {
+      return true;
+    }
+    return capabilities[name] !== false;
+  }
+
   function generateSessionId() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
@@ -511,6 +519,9 @@
       return;
     }
     if (action === "questions") {
+      if (!hasRuntimeCapability("questions")) {
+        return;
+      }
       questionsOverlay?.toggle();
     }
   }
@@ -1086,7 +1097,7 @@
 
   loadSessionId().finally(() => {
     drawingOverlay = createDrawingOverlay();
-    questionsOverlay = createQuestionsOverlay();
+    questionsOverlay = hasRuntimeCapability("questions") ? createQuestionsOverlay() : null;
     connect();
     createControlOverlay();
   });
