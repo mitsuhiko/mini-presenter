@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+## 0.5.0
+
 - Added `@name:` note markers with color-highlighted speaker tags in the notes panel.
 - Added next-slide speaker hints (first + additional speakers) in the presenter preview, with speaker carry-over when a slide has no marker.
+- Added standalone local-tab presenter transport with a same-origin popup shell for decks not served by `mini-presenter`.
+- Improved standalone presenter behavior by gating server-only controls, preserving slide order in next-preview, loading deck config in local mode, and reducing popup/server-probe issues.
 
 ## 0.4.0
 
