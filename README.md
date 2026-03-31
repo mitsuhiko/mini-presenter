@@ -38,7 +38,7 @@ npx mini-presenter path/to/deck
 npm install -g mini-presenter
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
 npx mini-presenter path/to/deck --port 8080 --watch --funnel
@@ -53,7 +53,7 @@ When you pass a URL, mini-presenter proxies the remote site through the local se
 Use `--watch` to enable file watching and auto-reload on HTML/CSS/JS changes.
 Use `--funnel` to create an anonymous Cloudflare tunnel (requires `cloudflared`).
 
-## Standalone local mode (no Node server)
+## Standalone Local Mode (No Node Server)
 
 For static/CDN decks, you can use a local-tab mode that avoids the server completely.
 Include the standalone bootstrap in your deck HTML:
@@ -69,7 +69,7 @@ This enables presenter control over local tabs using `BroadcastChannel` with a
 When the same deck is served through normal `mini-presenter` server mode,
 `standalone.js` auto-detects that environment and becomes a no-op.
 
-### Capability matrix
+### Capability Matrix
 
 | Feature | Server mode | Local mode |
 |---|---:|---:|
@@ -86,7 +86,7 @@ When the same deck is served through normal `mini-presenter` server mode,
 \*Next preview works best when presenter and deck are same-origin and the deck
 exposes `getSlideList()`/relative hash support.
 
-### Manual verification checklist
+### Enter Presenter Mode
 
 - **Server mode:** `npx mini-presenter ./slides`
   - open `/` and `/_/presenter`
@@ -96,7 +96,7 @@ exposes `getSlideList()`/relative hash support.
   - verify navigation sync, previews, draw/laser, timer
   - verify server-only actions are disabled and labeled accordingly
 
-## Export slides (PDF/PNG)
+## Export Slides (PDF/PNG)
 
 The exporter will start a dedicated Chrome instance with remote debugging automatically.
 
@@ -105,7 +105,7 @@ npx mini-presenter export ./slides --output slides.pdf
 npx mini-presenter export ./slides --output ./images --format png --delay 500
 ```
 
-## Basic requirements for slide decks
+## Basic Requirements for Slide Decks
 
 Your presentation can be plain HTML/CSS/JS as long as it cooperates with navigation and state reporting:
 
@@ -116,7 +116,7 @@ Your presentation can be plain HTML/CSS/JS as long as it cooperates with navigat
 
 If you already have a deck that uses hash-based navigation (Reveal, custom HTML, etc.), it usually “just works.”
 
-## Mini-presenter deck API (optional)
+## mini-presenter Deck API (Optional)
 
 Add a global `window.miniPresenter` object to make the presenter smarter:
 
@@ -140,7 +140,7 @@ window.miniPresenter = {
 - `getNotes(slideId)` provides speaker notes directly from the deck (including optional `@name:` speaker markers).
 - If you don’t expose these hooks, the presenter falls back to URL hash updates and keyboard events.
 
-## Presenter preview context
+## Presenter Preview Context
 The presenter view loads slide previews in iframes with `?_presenter_preview=1`.
 When that query param is present, the injected script:
 - sets `window.miniPresenter.isPresenterPreview = true`
@@ -234,7 +234,7 @@ Elements can be matched by `id`, `data-slide-id`, or `data-slide-hash`.
 
 The config is available at `/_/api/config`.
 
-## Speaker notes
+## Speaker Notes
 
 Notes are shown in the presenter view and loaded in this order:
 
@@ -254,7 +254,7 @@ specific file is missing (for example `#2/1` → `notes/2.md`).
 
 Notes are fetched from `/_/api/notes?hash=%23intro` and rendered as pre-wrapped text.
 
-### Speaker markers in notes
+### Speaker Markers in Notes
 
 You can mark speakers directly in notes with lines that start with `@name:`:
 
@@ -271,7 +271,7 @@ Live demo
 - Speaker tags are highlighted in color in the presenter notes panel.
 - If a slide has no `@name:` marker, the previous slide's speaker carries on.
 
-## Audience questions (Q&A)
+## Audience Questions (Q&A)
 
 Audience members can submit and vote on questions at:
 
@@ -281,14 +281,14 @@ Audience members can submit and vote on questions at:
 In the presenter view, press `q` (or click the questions badge) to open the live
 questions panel, refresh, and mark questions as answered.
 
-## Recording and playback
+## Recording and Playback
 
 Use the record button (default shortcut: `Shift+R`) in the presenter view to capture
 slide navigation, laser/draw actions, and microphone audio. Recordings are stored as
 `recording.json` + `recording.webm` next to your local deck and can be replayed from
 the presenter view via the play button. Recording is only available for local folders.
 
-## Next slide preview
+## Next Slide Preview
 
 The presenter shows a next-slide preview when it can determine the slide order from
 `window.miniPresenter.getSlideList()` in your deck (returns an array of hashes).
