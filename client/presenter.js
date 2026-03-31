@@ -3309,6 +3309,32 @@ function getSlideOrderFromPreview() {
   return apiSlideOrder;
 }
 
+function normalizeIncomingSlideOrder(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const filtered = value.filter((entry) => typeof entry === "string");
+  return filtered.length > 0 ? filtered : null;
+}
+
+function updateSlideOrderFromState(value) {
+  const normalized = normalizeIncomingSlideOrder(value);
+  if (!normalized) {
+    return;
+  }
+
+  const previous = Array.isArray(apiSlideOrder) ? stableStringify(apiSlideOrder) : null;
+  const next = stableStringify(normalized);
+  if (previous === next) {
+    return;
+  }
+
+  apiSlideOrder = normalized;
+  updateSlideIndicator(lastSlideId);
+  updatePresenterFavicon();
+  updateTimerDisplay();
+}
+
 function resolveNextPreviewInfo({ slideId, hash }) {
   const baseHash = stripRelativeSuffix(hash || slideId || "#");
   if (!baseHash) {
@@ -4349,6 +4375,7 @@ function updateSlideState({
   hash,
   displays,
   notes,
+  slideOrder,
   viewport,
   sessionId: incomingSessionId,
 }) {
@@ -4364,6 +4391,7 @@ function updateSlideState({
 
   const previousHash = lastKnownHash;
   const nextHash = hash || slideId || "#";
+  updateSlideOrderFromState(slideOrder);
   lastKnownHash = nextHash;
   updatePresenterFavicon({ slideId: stateKey, hash: nextHash });
   updatePreview(nextHash);

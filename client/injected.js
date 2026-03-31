@@ -28,7 +28,7 @@
   let reconnectTimer = null;
   let statePoller = null;
   let sessionId = null;
-  let lastReported = { slideId: null, hash: null, notes: null, viewport: null };
+  let lastReported = { slideId: null, hash: null, notes: null, viewport: null, slideOrderKey: null };
   let shortcutConfig = { ...DEFAULT_SHORTCUTS };
   let drawingOverlay = null;
   let questionsOverlay = null;
@@ -291,6 +291,22 @@
     return undefined;
   }
 
+  function getSlideOrder() {
+    if (window.miniPresenter && typeof window.miniPresenter.getSlideList === "function") {
+      try {
+        const list = window.miniPresenter.getSlideList();
+        if (!Array.isArray(list)) {
+          return undefined;
+        }
+        const filtered = list.filter((entry) => typeof entry === "string");
+        return filtered.length > 0 ? filtered : undefined;
+      } catch (error) {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   function getViewportMetrics() {
     return {
       width: Math.round(window.innerWidth || 0),
@@ -302,23 +318,29 @@
     const slideId = getSlideId();
     const hash = location.hash || "#";
     const notes = getNotes(slideId);
+    const slideOrder = getSlideOrder();
+    const slideOrderKey = Array.isArray(slideOrder) ? slideOrder.join("\u001f") : null;
     const viewport = getViewportMetrics();
     if (
       slideId === lastReported.slideId &&
       hash === lastReported.hash &&
       notes === lastReported.notes &&
+      slideOrderKey === lastReported.slideOrderKey &&
       viewport.width === lastReported.viewport?.width &&
       viewport.height === lastReported.viewport?.height
     ) {
       return;
     }
-    lastReported = { slideId, hash, notes, viewport };
+    lastReported = { slideId, hash, notes, viewport, slideOrderKey };
     const message = { type: "state", slideId, hash, viewport };
     if (sessionId) {
       message.sessionId = sessionId;
     }
     if (notes !== undefined) {
       message.notes = notes;
+    }
+    if (slideOrder) {
+      message.slideOrder = slideOrder;
     }
     sendMessage(message);
   }
