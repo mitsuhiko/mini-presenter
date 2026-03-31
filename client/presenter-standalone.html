@@ -461,8 +461,19 @@
     <script>
       (() => {
         const params = new URLSearchParams(window.location.search);
-        const sessionId = params.get("mp_session") || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-        const deckUrl = params.get("mp_deck") || `${window.location.origin}/`;
+        const context =
+          window.__miniPresenterStandaloneContext &&
+          typeof window.__miniPresenterStandaloneContext === "object"
+            ? window.__miniPresenterStandaloneContext
+            : {};
+        const sessionId =
+          (typeof context.sessionId === "string" && context.sessionId) ||
+          params.get("mp_session") ||
+          `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        const deckUrl =
+          (typeof context.deckUrl === "string" && context.deckUrl) ||
+          params.get("mp_deck") ||
+          `${window.location.origin}/`;
         window.miniPresenterRuntime?.setRuntime?.({
           mode: "local",
           capabilities: {

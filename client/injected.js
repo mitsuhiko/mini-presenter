@@ -572,6 +572,19 @@
         },
       });
 
+      const standalone = window.miniPresenterStandalone;
+      if (standalone && typeof standalone.openPresenterWindow === "function") {
+        const popup = standalone.openPresenterWindow({
+          sessionId: localSessionId,
+          deckUrl,
+          windowName: "miniPresenterView",
+          features: "width=1000,height=700",
+        });
+        if (popup) {
+          return;
+        }
+      }
+
       presenterUrl.searchParams.set("mp_mode", "local");
       presenterUrl.searchParams.set("mp_session", localSessionId);
       presenterUrl.searchParams.set("mp_deck", deckUrl);

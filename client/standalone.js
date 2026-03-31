@@ -34,9 +34,21 @@
     return fallback;
   }
 
+  const assetBaseUrl = resolveScriptBaseUrl();
+  const assetUrls = {
+    runtime: withDefault(scriptDataset.runtime, new URL("runtime.js", assetBaseUrl).toString()),
+    transport: withDefault(scriptDataset.transport, new URL("transport.js", assetBaseUrl).toString()),
+    injected: withDefault(scriptDataset.injected, new URL("injected.js", assetBaseUrl).toString()),
+    presenterTemplate: withDefault(
+      scriptDataset.presenter,
+      new URL("presenter-standalone.html", assetBaseUrl).toString()
+    ),
+  };
+
+  let presenterTemplatePromise = null;
+
   function scriptAlreadyLoaded(url) {
-    return Array.from(document.querySelectorAll("script[src]"))
-      .some((entry) => entry.src === url);
+    return Array.from(document.querySelectorAll("script[src]")).some((entry) => entry.src === url);
   }
 
   function loadScript(url) {
@@ -98,9 +110,13 @@
 
     if (document.readyState === "loading") {
       return new Promise((resolve) => {
-        document.addEventListener("DOMContentLoaded", () => {
-          resolve();
-        }, { once: true });
+        document.addEventListener(
+          "DOMContentLoaded",
+          () => {
+            resolve();
+          },
+          { once: true }
+        );
       });
     }
 
@@ -119,6 +135,137 @@
     return root.__miniPresenterDisplayInjected === true;
   }
 
+  function serializeForInlineScript(value) {
+    return JSON.stringify(value).replace(/</g, "\\u003c");
+  }
+
+  function escapeHtmlAttribute(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function escapeHtmlText(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  async function loadPresenterTemplate() {
+    if (!presenterTemplatePromise) {
+      presenterTemplatePromise = (async () => {
+        if (typeof root.fetch !== "function") {
+          throw new Error("fetch is not available in this browser");
+        }
+        const response = await root.fetch(assetUrls.presenterTemplate, {
+          method: "GET",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to load presenter template (${response.status})`);
+        }
+        return response.text();
+      })();
+    }
+    return presenterTemplatePromise;
+  }
+
+  function buildPresenterDocument(template, { sessionId, deckUrl }) {
+    const baseTag = `<base href="${escapeHtmlAttribute(assetBaseUrl)}">`;
+    const contextScript = `<script>window.__miniPresenterStandaloneContext=${serializeForInlineScript({
+      sessionId,
+      deckUrl,
+    })};</script>`;
+
+    if (/<head[^>]*>/i.test(template)) {
+      return template.replace(/<head([^>]*)>/i, `<head$1>${baseTag}${contextScript}`);
+    }
+
+    return `<!doctype html><html><head>${baseTag}${contextScript}</head><body>${template}</body></html>`;
+  }
+
+  function renderPresenterError(error, { sessionId, deckUrl }) {
+    const safeError = escapeHtmlText(error?.message || String(error || "Unknown error"));
+    const fallbackUrl = new URL(assetUrls.presenterTemplate);
+    fallbackUrl.searchParams.set("mp_mode", "local");
+    fallbackUrl.searchParams.set("mp_session", sessionId);
+    fallbackUrl.searchParams.set("mp_deck", deckUrl);
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>mini-presenter</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2rem; color: #1f2937; }
+      code { background: #f3f4f6; padding: 0.15rem 0.35rem; border-radius: 4px; }
+      .error { color: #991b1b; }
+    </style>
+  </head>
+  <body>
+    <h1>Unable to load presenter shell</h1>
+    <p class="error">${safeError}</p>
+    <p>Try opening this fallback URL directly:</p>
+    <p><a href="${escapeHtmlAttribute(fallbackUrl.toString())}" target="_blank" rel="noopener noreferrer">${escapeHtmlText(
+      fallbackUrl.toString()
+    )}</a></p>
+  </body>
+</html>`;
+  }
+
+  function writePopupDocument(popup, html) {
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+  }
+
+  function openPresenterWindow({ sessionId, deckUrl, windowName = "miniPresenterView", features = "width=1000,height=700" } = {}) {
+    const resolvedSessionId =
+      typeof sessionId === "string" && sessionId ? sessionId : createSessionId();
+    const resolvedDeckUrl =
+      typeof deckUrl === "string" && deckUrl ? deckUrl : cleanDeckUrl();
+
+    const popup = root.open("about:blank", windowName, features);
+    if (!popup) {
+      return null;
+    }
+
+    writePopupDocument(
+      popup,
+      "<!doctype html><html><head><meta charset=\"utf-8\"><title>mini-presenter</title></head><body style=\"font-family:sans-serif;padding:1rem\">Loading presenter…</body></html>"
+    );
+
+    loadPresenterTemplate()
+      .then((template) => {
+        const html = buildPresenterDocument(template, {
+          sessionId: resolvedSessionId,
+          deckUrl: resolvedDeckUrl,
+        });
+        writePopupDocument(popup, html);
+      })
+      .catch((error) => {
+        writePopupDocument(
+          popup,
+          renderPresenterError(error, {
+            sessionId: resolvedSessionId,
+            deckUrl: resolvedDeckUrl,
+          })
+        );
+      });
+
+    return popup;
+  }
+
+  root.miniPresenterStandalone = {
+    ...(root.miniPresenterStandalone ?? {}),
+    openPresenterWindow,
+    getAssetBaseUrl: () => assetBaseUrl,
+    getAssetUrls: () => ({ ...assetUrls }),
+  };
+
   async function bootstrap() {
     const params = new URLSearchParams(root.location.search);
     if (await shouldNoopBecauseMiniPresenterServer(params)) {
@@ -126,16 +273,7 @@
       return;
     }
 
-    const baseUrl = resolveScriptBaseUrl();
-    const runtimeUrl = withDefault(scriptDataset.runtime, new URL("runtime.js", baseUrl).toString());
-    const transportUrl = withDefault(scriptDataset.transport, new URL("transport.js", baseUrl).toString());
-    const injectedUrl = withDefault(scriptDataset.injected, new URL("injected.js", baseUrl).toString());
-    const presenterUrl = withDefault(
-      scriptDataset.presenter,
-      new URL("presenter-standalone.html", baseUrl).toString()
-    );
-
-    await loadScript(runtimeUrl);
+    await loadScript(assetUrls.runtime);
 
     const runtime = root.miniPresenterRuntime;
     const sessionId = resolveSessionId(params);
@@ -144,7 +282,7 @@
     runtime?.setRuntime?.({
       mode: "local",
       routes: {
-        presenter: presenterUrl,
+        presenter: assetUrls.presenterTemplate,
       },
       capabilities: {
         questions: false,
@@ -158,8 +296,8 @@
       },
     });
 
-    await loadScript(transportUrl);
-    await loadScript(injectedUrl);
+    await loadScript(assetUrls.transport);
+    await loadScript(assetUrls.injected);
   }
 
   bootstrap().catch((error) => {
