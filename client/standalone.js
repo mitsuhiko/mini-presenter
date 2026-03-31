@@ -8,6 +8,7 @@
 
   const currentScript = document.currentScript;
   const scriptDataset = currentScript?.dataset ?? {};
+  const shouldSkipServerNoop = scriptDataset.force === "true" || scriptDataset.force === "1";
 
   function createSessionId() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -86,7 +87,90 @@
     return generated;
   }
 
+  function isExplicitLocalSession(params) {
+    return params.get("mp_mode") === "local";
+  }
+
+  function buildServerConfigUrl() {
+    if (scriptDataset.config && typeof scriptDataset.config === "string") {
+      return new URL(scriptDataset.config, root.location.href).toString();
+    }
+    const base =
+      typeof root.location.origin === "string" && root.location.origin !== "null"
+        ? root.location.origin
+        : root.location.href;
+    return new URL("/_/api/config", base).toString();
+  }
+
+  function looksLikeMiniPresenterConfig(payload) {
+    if (!payload || typeof payload !== "object") {
+      return false;
+    }
+    const runtime = payload._runtime;
+    if (!runtime || typeof runtime !== "object") {
+      return false;
+    }
+    if (runtime.mode !== "server") {
+      return false;
+    }
+    return (
+      typeof payload.sessionId === "string" &&
+      payload.sessionId.length > 0 &&
+      typeof runtime.routes?.ws === "string" &&
+      typeof runtime.routes?.presenter === "string"
+    );
+  }
+
+  async function shouldNoopBecauseMiniPresenterServer(params) {
+    if (shouldSkipServerNoop) {
+      return false;
+    }
+    if (isExplicitLocalSession(params)) {
+      return false;
+    }
+    if (root.__miniPresenterDisplayInjected === true) {
+      return true;
+    }
+    if (typeof root.fetch !== "function") {
+      return false;
+    }
+
+    const configUrl = buildServerConfigUrl();
+    const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timeout = null;
+    if (abortController) {
+      timeout = setTimeout(() => {
+        abortController.abort();
+      }, 750);
+    }
+
+    try {
+      const response = await root.fetch(configUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: abortController?.signal,
+      });
+      if (!response.ok) {
+        return false;
+      }
+      const payload = await response.json().catch(() => null);
+      return looksLikeMiniPresenterConfig(payload);
+    } catch (error) {
+      return false;
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
   async function bootstrap() {
+    const params = new URLSearchParams(root.location.search);
+    if (await shouldNoopBecauseMiniPresenterServer(params)) {
+      root.__miniPresenterStandaloneNoop = true;
+      return;
+    }
+
     const baseUrl = resolveScriptBaseUrl();
     const runtimeUrl = withDefault(scriptDataset.runtime, new URL("runtime.js", baseUrl).toString());
     const transportUrl = withDefault(scriptDataset.transport, new URL("transport.js", baseUrl).toString());
@@ -98,7 +182,6 @@
 
     await loadScript(runtimeUrl);
 
-    const params = new URLSearchParams(root.location.search);
     const runtime = root.miniPresenterRuntime;
     const sessionId = resolveSessionId(params);
     const deckUrl = params.get("mp_deck") || cleanDeckUrl();

@@ -66,6 +66,9 @@ This enables presenter control over local tabs using `BroadcastChannel` with a
 `postMessage`/`MessageChannel` fallback. The presenter opens from
 `presenter-standalone.html` and communicates directly with the slide tab.
 
+When the same deck is served through normal `mini-presenter` server mode,
+`standalone.js` auto-detects that environment and becomes a no-op.
+
 ### Capability matrix
 
 | Feature | Server mode | Local mode |

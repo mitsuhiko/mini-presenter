@@ -1,4 +1,6 @@
 (function () {
+  window.__miniPresenterDisplayInjected = true;
+
   const params = new URLSearchParams(location.search);
   const isPresenterPreview = params.has("_presenter_preview");
 
