@@ -28,10 +28,26 @@
   let reconnectTimer = null;
   let statePoller = null;
   let sessionId = null;
+  let localDeckConfig = null;
   let lastReported = { slideId: null, hash: null, notes: null, viewport: null, slideOrderKey: null };
   let shortcutConfig = { ...DEFAULT_SHORTCUTS };
   let drawingOverlay = null;
   let questionsOverlay = null;
+
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function cloneSerializableObject(value) {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      if (isPlainObject(value)) {
+        return { ...value };
+      }
+      return null;
+    }
+  }
 
   function markPresenterPreview() {
     if (!window.miniPresenter ||
@@ -262,10 +278,80 @@
   }
 
   function buildLocalConfig() {
-    return {
-      sessionId,
-      _runtime: getRuntimeSnapshot(),
-    };
+    const baseConfig = isPlainObject(localDeckConfig)
+      ? cloneSerializableObject(localDeckConfig) ?? {}
+      : {};
+    baseConfig.sessionId = sessionId;
+    baseConfig._runtime = getRuntimeSnapshot();
+    return baseConfig;
+  }
+
+  function getDeckProvidedConfig() {
+    const api = window.miniPresenter;
+    if (!api || (typeof api !== "object" && typeof api !== "function")) {
+      return null;
+    }
+
+    if (typeof api.getConfig === "function") {
+      try {
+        const value = api.getConfig();
+        if (isPlainObject(value)) {
+          return cloneSerializableObject(value);
+        }
+      } catch (error) {
+        // ignore getConfig errors
+      }
+    }
+
+    if (isPlainObject(api.config)) {
+      return cloneSerializableObject(api.config);
+    }
+
+    return null;
+  }
+
+  function getLocalConfigUrl() {
+    const runtime = getRuntimeSnapshot();
+    const local = runtime.local && typeof runtime.local === "object" ? runtime.local : {};
+    const rawDeckUrl =
+      typeof local.deckUrl === "string" && local.deckUrl ? local.deckUrl : getDeckUrlForLocalMode();
+
+    try {
+      const deckUrl = new URL(rawDeckUrl, location.href);
+      deckUrl.hash = "";
+      deckUrl.search = "";
+      return new URL("presenter.json", deckUrl).toString();
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async function loadLocalDeckConfig() {
+    localDeckConfig = getDeckProvidedConfig();
+    if (localDeckConfig) {
+      return;
+    }
+
+    const configUrl = getLocalConfigUrl();
+    if (!configUrl || typeof fetch !== "function") {
+      return;
+    }
+
+    try {
+      const response = await fetch(configUrl, {
+        method: "GET",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      if (isPlainObject(data)) {
+        localDeckConfig = cloneSerializableObject(data);
+      }
+    } catch (error) {
+      // ignore local config loading failures
+    }
   }
 
   function sendMessage(message) {
@@ -1018,6 +1104,7 @@
   async function loadSessionId() {
     if (isLocalMode()) {
       sessionId = ensureLocalSessionId();
+      await loadLocalDeckConfig();
       return;
     }
 

@@ -66,6 +66,10 @@ This enables presenter control over local tabs using `BroadcastChannel` with a
 `postMessage`/`MessageChannel` fallback. The presenter opens from
 `presenter-standalone.html` and communicates directly with the slide tab.
 
+In local mode, the display will use deck-provided config from
+`window.miniPresenter.getConfig()` / `window.miniPresenter.config` when
+available, and otherwise tries to load `presenter.json` next to the deck page.
+
 When the same deck is served through normal `mini-presenter` server mode,
 `standalone.js` auto-detects that environment and becomes a no-op.
 
@@ -78,6 +82,7 @@ When the same deck is served through normal `mini-presenter` server mode,
 | Next preview | ✅ | ✅* |
 | Draw / laser | ✅ | ✅ |
 | Timer | ✅ | ✅ |
+| `notes/*.md` file loading | ✅ | ❌ |
 | Q&A | ✅ | ❌ |
 | Export API | ✅ | ❌ |
 | Recording persistence | ✅ | ❌ |
