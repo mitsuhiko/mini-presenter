@@ -735,7 +735,7 @@ function getPresenterKey() {
     return urlKey.trim();
   }
 
-  if (params.get("mp_mode") === "local") {
+  if (isLocalMode()) {
     return null;
   }
 
