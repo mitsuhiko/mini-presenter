@@ -1,5 +1,6 @@
 const presenterRoot = document.querySelector(".presenter");
 const presenterMain = document.querySelector(".presenter__main");
+const presenterSide = document.querySelector(".presenter__side");
 const timerDisplay = document.querySelector("#timer");
 const timerSecondaryDisplay = document.querySelector("#timer-secondary");
 const timerPaceDisplay = document.querySelector("#timer-pace");
@@ -34,6 +35,7 @@ const resetPopover = document.querySelector("#reset-popover");
 const exportButton = document.querySelector("#export-pdf");
 const recordingToggleButton = document.querySelector("#recording-toggle");
 const recordingPlayButton = document.querySelector("#recording-play");
+const recordingFab = recordingToggleButton?.closest(".presenter__recording") ?? null;
 const recordingConfirmPopover = document.querySelector("#recording-confirm-popover");
 const recordingConfirmButton = document.querySelector("#recording-confirm");
 const recordingCancelButton = document.querySelector("#recording-cancel");
@@ -411,8 +413,38 @@ function applyPresenterLayout() {
     return;
   }
 
-  presenterRoot.style.gridTemplateRows = `minmax(0, ${(1 - notesSplitRatio) * 100}fr) var(--presenter-splitter-size) minmax(0, ${notesSplitRatio * 100}fr)`;
-  presenterMain.style.gridTemplateColumns = `minmax(0, ${mainSplitRatio * 100}fr) var(--presenter-splitter-size) minmax(18rem, ${(1 - mainSplitRatio) * 100}fr)`;
+  const applyGridLayout = () => {
+    presenterRoot.style.gridTemplateRows = `minmax(0, ${(1 - notesSplitRatio) * 100}fr) var(--presenter-splitter-size) minmax(0, ${notesSplitRatio * 100}fr)`;
+    presenterMain.style.gridTemplateColumns = `minmax(0, ${mainSplitRatio * 100}fr) var(--presenter-splitter-size) minmax(18rem, ${(1 - mainSplitRatio) * 100}fr)`;
+  };
+
+  applyGridLayout();
+
+  const usableHeight = getPresenterUsableHeight();
+  if (usableHeight > 0) {
+    const mainRect = presenterMain.getBoundingClientRect();
+    let overflow = 0;
+    for (const element of [previewSection, presenterSide]) {
+      if (!element) {
+        continue;
+      }
+      const rect = element.getBoundingClientRect();
+      overflow = Math.max(overflow, mainRect.top - rect.top, rect.bottom - mainRect.bottom);
+    }
+
+    if (overflow > 1) {
+      const adjustedNotesSplitRatio = clampNumber(
+        notesSplitRatio - (overflow + 4) / usableHeight,
+        minNotesSplitRatio,
+        MAX_NOTES_SPLIT_RATIO
+      );
+      if (adjustedNotesSplitRatio < notesSplitRatio) {
+        notesSplitRatio = adjustedNotesSplitRatio;
+        applyGridLayout();
+      }
+    }
+  }
+
   updateSplitterAria();
   resizePreviewCanvases();
 }
@@ -1190,10 +1222,15 @@ function applyCapabilityState() {
   setQuestionsAvailability(capabilityQuestions);
 
   if (exportButton) {
+    exportButton.dataset.unavailable = capabilityExport ? "false" : "true";
     exportButton.disabled = !capabilityExport;
     exportButton.title = capabilityExport
       ? "Export PDF"
       : "Export is available in server mode";
+  }
+
+  if (recordingFab) {
+    recordingFab.dataset.unavailable = capabilityRecordingPersistence ? "false" : "true";
   }
 
   if (settingsFileLabel) {
@@ -3586,6 +3623,10 @@ function updatePreviewAspectRatio(viewport) {
   }
   previewAspectRatio = ratio;
   document.documentElement.style.setProperty("--presenter-preview-aspect", ratio.toFixed(5));
+  document.documentElement.style.setProperty(
+    "--presenter-preview-height-ratio",
+    (height / width).toFixed(5)
+  );
   resizePreviewCanvases();
 }
 

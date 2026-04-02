@@ -393,7 +393,69 @@
     return undefined;
   }
 
+  function readViewportCandidateSize(element) {
+    if (!(element instanceof Element)) {
+      return null;
+    }
+    const rect = element.getBoundingClientRect();
+    const width = Math.round(rect.width || 0);
+    const height = Math.round(rect.height || 0);
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    return { width, height, area: width * height };
+  }
+
+  function getPresentationSurfaceMetrics() {
+    const api = window.miniPresenter;
+    if (api && typeof api.getViewport === "function") {
+      try {
+        const value = api.getViewport();
+        const width = Number(value?.width);
+        const height = Number(value?.height);
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+          return {
+            width: Math.round(width),
+            height: Math.round(height),
+          };
+        }
+      } catch (error) {
+        // ignore deck API failures
+      }
+    }
+
+    const selectors = [
+      "[data-mini-presenter-viewport]",
+      "[data-presenter-viewport]",
+      ".deck",
+      ".reveal .slides",
+      ".slides",
+    ];
+
+    let best = null;
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        const candidate = readViewportCandidateSize(element);
+        if (!candidate) {
+          continue;
+        }
+        if (!best || candidate.area > best.area) {
+          best = candidate;
+        }
+      }
+      if (best) {
+        return { width: best.width, height: best.height };
+      }
+    }
+
+    return null;
+  }
+
   function getViewportMetrics() {
+    const presentationSurface = getPresentationSurfaceMetrics();
+    if (presentationSurface) {
+      return presentationSurface;
+    }
     return {
       width: Math.round(window.innerWidth || 0),
       height: Math.round(window.innerHeight || 0),
