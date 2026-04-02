@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.1
+
+- Fixed presenter key detection in standalone local mode so local sessions no longer prompt for a presenter code.
+
 ## 0.5.0
 
 - Added `@name:` note markers with color-highlighted speaker tags in the notes panel.
