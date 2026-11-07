@@ -153,6 +153,16 @@ export function navigate(action: NavAction): void {
 }
 
 export function goto(hash: string): void {
+  // Relative preview hashes (`#3~next`) are a URL convention the deck resolves
+  // in its hash handler; its `goto()` usually does not understand them.
+  if (/~(next|prev)$/u.test(hash)) {
+    if (location.hash === hash) {
+      dispatchEvent(new HashChangeEvent("hashchange"));
+    } else {
+      location.hash = hash;
+    }
+    return;
+  }
   const deck = api();
   if (typeof deck?.goto === "function") {
     deck.goto(hash);
