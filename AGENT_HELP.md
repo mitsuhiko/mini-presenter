@@ -31,6 +31,10 @@ Presenter sends `next`, `prev`, `first`, `last`, and `goto`.
 
 Your deck must handle those keys if you do not provide API methods.
 
+In your own `keydown` handler, ignore events with modifiers
+(`if (event.metaKey || event.ctrlKey || event.altKey) return;`) so browser
+shortcuts like Cmd+L or Ctrl+R keep working.
+
 ## Optional deck API (recommended)
 ```js
 window.miniPresenter = {
