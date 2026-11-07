@@ -4,7 +4,7 @@ Goal: create a slide deck that works with mini-presenter.
 
 ## How mini-presenter works
 - Serves the folder you pass on the CLI (HTML/CSS/JS assets).
-- Injects `<script src="/_/client/injected.js"></script>` into every HTML file.
+- Injects `<script src="/_/client/display.js"></script>` into every HTML file.
 - The injected script connects to `/_/ws` as a **display**, reports slide state, and listens for navigation commands from the presenter.
 - Presenter UI is at `/_/presenter` and controls the display via WebSocket.
 
@@ -14,7 +14,7 @@ Your deck **must** provide a stable slide identifier and respond to navigation.
 ### Slide identifier
 The presenter uses this in order:
 1. `window.miniPresenter.getCurrentSlide()` if defined.
-2. `location.hash` (fallback). If empty, `"#"` is used.
+2. `location.hash` (fallback).
 
 **Recommendation:** update `location.hash` whenever the slide changes.
 
@@ -82,7 +82,9 @@ Presenter looks for notes in this order:
 1. `window.miniPresenter.getNotes(slideId)` (if `notes.source` is `api` or `auto`).
 2. Files in `notes/` next to `index.html` (if `notes.source` is `files` or `auto`).
 
-Notes can include speaker markers using lines like `@name:`.
+Notes are rendered as a small Markdown subset (paragraphs, headings, lists,
+`---`, `**bold**`, `*italic*`, `` `code` ``). Notes can include speaker markers
+using lines like `@name:`.
 
 Example:
 ```md
@@ -121,9 +123,17 @@ Place next to `index.html` to configure presenter UI.
   "preview": { "relativeHash": true }
 }
 ```
-- `notes.source`: `api`, `files`, or `none` (default: `auto`).
+- `notes.source`: `auto` (default), `api`, `files`, or `none`.
 - `preview.relativeHash`: enables `#<hash>~next` preview resolution.
 - Config is available at `/_/api/config`.
+
+## Serverless decks
+Decks hosted elsewhere can include the standalone script instead of using the server:
+```html
+<script src="https://cdn.jsdelivr.net/npm/mini-presenter@0/dist/client/standalone.js"></script>
+```
+Pressing `p` opens the presenter in a popup that talks to the slide tab directly.
+Notes come from `getNotes()` only; Q&A, recording, export and saving settings need the server.
 
 ## Minimal working recipe
 1. Create `index.html` with slides and a JS router.

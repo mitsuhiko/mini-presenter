@@ -1,1 +1,4 @@
 node_modules/
+dist/
+examples/*/questions.json
+examples/*/recording.*

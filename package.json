@@ -20,23 +20,36 @@
     "url": "https://github.com/mitsuhiko/mini-presenter/issues"
   },
   "bin": {
-    "mini-presenter": "./bin/mini-presenter.js"
+    "mini-presenter": "./dist/cli.js"
   },
   "files": [
-    "bin",
-    "src",
-    "client"
+    "dist"
   ],
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.18"
   },
   "scripts": {
-    "start": "node ./bin/mini-presenter.js examples/basic"
+    "build": "node scripts/build.ts",
+    "dev": "node scripts/build.ts --watch --serve examples/basic",
+    "start": "node src/cli.ts examples/basic",
+    "check": "tsc -p tsconfig.json && tsc -p src/client/tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
     "qrcode-terminal": "^0.12.0",
-    "ws": "^8.16.0"
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@solidjs/compiler": "2.0.0-rc.21",
+    "@solidjs/web": "2.0.0-rc.21",
+    "@types/node": "22.20.5",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2",
+    "solid-js": "2.0.0-rc.21",
+    "typescript": "7.0.2"
   }
 }

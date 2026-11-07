@@ -30,6 +30,8 @@ special marker hashes you can also have next slide previews.
 
 ## Installation
 
+Requires Node.js 22.18 or later.
+
 ```bash
 # Run directly with npx (no install needed)
 npx mini-presenter path/to/deck
@@ -41,7 +43,7 @@ npm install -g mini-presenter
 ## Quick Start
 
 ```bash
-npx mini-presenter path/to/deck --port 8080 --watch --funnel
+npx mini-presenter path/to/deck --port 8080 --watch
 npx mini-presenter https://mitsuhiko.github.io/talks/i-was-questioning-life/
 ```
 
@@ -51,7 +53,27 @@ npx mini-presenter https://mitsuhiko.github.io/talks/i-was-questioning-life/
 When you pass a URL, mini-presenter proxies the remote site through the local server. File watching is only available for local folders.
 
 Use `--watch` to enable file watching and auto-reload on HTML/CSS/JS changes.
-Use `--funnel` to create an anonymous Cloudflare tunnel (requires `cloudflared`).
+Notes and `presenter.json` changes are picked up without reloading the slides.
+
+### Sharing on the network
+
+By default the server only listens on `127.0.0.1`. To let other devices
+connect (a second laptop driving the presenter view, phones joining the Q&A),
+pick an interface:
+
+```bash
+npx mini-presenter ./slides --host 0.0.0.0
+```
+
+Use `--funnel` to create an anonymous Cloudflare tunnel instead (requires
+`cloudflared`).
+
+The presenter view and everything that changes state (navigation, drawing,
+saving settings, recordings, moderating questions) is restricted to the
+presenting machine. Other devices need the presenter PIN that is printed on
+startup; the printed network/tunnel links contain it. After entering the PIN
+once, the browser keeps an HttpOnly session cookie for the lifetime of the
+server. Wrong PINs are rate limited.
 
 ## Standalone Local Mode (No Node Server)
 
@@ -59,12 +81,20 @@ For static/CDN decks, you can use a local-tab mode that avoids the server comple
 Include the standalone bootstrap in your deck HTML:
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/mitsuhiko/mini-presenter@main/client/standalone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mini-presenter@0/dist/client/standalone.js"></script>
 ```
 
 This enables presenter control over local tabs using `BroadcastChannel` with a
-`postMessage`/`MessageChannel` fallback. The presenter opens from
-`presenter-standalone.html` and communicates directly with the slide tab.
+`postMessage`/`MessageChannel` fallback. Press `p` on the slides to open the
+presenter in a popup; it talks directly to the slide tab.
+
+To self-host the assets, copy `dist/client/` from the npm package and point the
+script tag at your copy. `data-base="…"` overrides where the remaining assets
+are loaded from, `data-force="true"` enables local mode even when served by
+mini-presenter.
+
+The old URL (`…/gh/mitsuhiko/mini-presenter@main/client/standalone.js`) keeps
+working; it forwards to the npm build.
 
 In local mode, the display will use deck-provided config from
 `window.miniPresenter.getConfig()` / `window.miniPresenter.config` when
@@ -103,7 +133,10 @@ exposes `getSlideList()`/relative hash support.
 
 ## Export Slides (PDF/PNG)
 
-The exporter will start a dedicated Chrome instance with remote debugging automatically.
+The exporter starts a headless Chrome (or Chromium/Edge) with a throwaway
+profile. Set `CHROME_PATH` to pick a specific browser, or pass
+`--chrome-port <port>` to use an already running browser with remote debugging.
+The presenter view also has a PDF button.
 
 ```bash
 npx mini-presenter export ./slides --output slides.pdf
@@ -203,10 +236,13 @@ Place an optional `presenter.json` next to your `index.html` to customize the pr
 }
 ```
 
+All of these can also be edited from the settings dialog in the presenter view,
+which writes `presenter.json` for you (form or raw JSON).
+
 - `title`: Optional presenter title (defaults to the slideshow `<title>`).
 - `keyboard`: Custom key bindings for presenter navigation.
 - `shortcuts`: Presenter shortcuts for fullscreen, presenter view, questions, and recording.
-- `notes.source`: `api`, `files`, or `none` (default: `api` + file fallback).
+- `notes.source`: `auto` (default: deck API, then files), `api`, `files`, or `none`.
 - `preview.relativeHash`: Enable `#<hash>~next` preview resolution.
 - `timer.mode`: `countup` (default), `countdown-total`, or `countdown-slide`.
   `countdown` is still accepted as an alias for `countdown-total`.
@@ -232,7 +268,8 @@ Use seconds (`"45"`) or `MM:SS` / `HH:MM:SS` (for example `"1:30"`):
 <section id="demo" data-slide-time="1:30"></section>
 ```
 
-Elements can be matched by `id`, `data-slide-id`, or `data-slide-hash`.
+Elements can be matched by `id`, `data-slide`, `data-slide-id`, or `data-slide-hash`.
+
 - `draw.color` / `draw.size`: Defaults for drawing color and size (ratio of slide width).
 - `laser.color` / `laser.size`: Defaults for laser color and size (ratio of slide width).
 - `recording.deviceId`: Optional audio input device id (set in presenter settings).
@@ -257,7 +294,10 @@ File mapping rules:
 Numeric hashes with `-`, `.`, or `--` suffixes fall back to the base number if the
 specific file is missing (for example `#2/1` → `notes/2.md`).
 
-Notes are fetched from `/_/api/notes?hash=%23intro` and rendered as pre-wrapped text.
+Notes are fetched from `/_/api/notes?hash=%23intro`. A small, safe Markdown
+subset is rendered: paragraphs (line breaks are kept), headings, bullet and
+numbered lists, `---` rules, `**bold**`, `*italic*` and `` `code` ``. HTML is
+shown as text.
 
 ### Speaker Markers in Notes
 
@@ -283,8 +323,13 @@ Audience members can submit and vote on questions at:
 - `/_/questions` — live Q&A page
 - `/_/questions/qr` — QR code landing page (handy with `--funnel`)
 
-In the presenter view, press `q` (or click the questions badge) to open the live
-questions panel, refresh, and mark questions as answered.
+In the presenter view, press `q` (or click the Questions button) to open the live
+questions panel, mark questions as answered or delete them. On the slides, `q`
+shows a QR code overlay for the audience. Questions are stored in
+`questions.json` next to the deck; each browser can vote once per question.
+
+With the default `127.0.0.1` binding only this machine can reach the Q&A page;
+use `--host 0.0.0.0` or `--funnel` so the audience can join.
 
 ## Recording and Playback
 
@@ -292,6 +337,7 @@ Use the record button (default shortcut: `Shift+R`) in the presenter view to cap
 slide navigation, laser/draw actions, and microphone audio. Recordings are stored as
 `recording.json` + `recording.webm` next to your local deck and can be replayed from
 the presenter view via the play button. Recording is only available for local folders.
+The recording files are never served to the audience.
 
 ## Next Slide Preview
 
@@ -306,6 +352,29 @@ When speaker markers are present in notes, the next-slide card also shows:
 - any additional speakers on that slide
 
 If the next slide has no `@name:` marker, the current speaker is carried over.
+
+## Keyboard
+
+On the slides: `f` fullscreen, `p` presenter view, `q` questions QR code.
+In the presenter view: the navigation keys, `Shift+R` record, `q` questions,
+`t` start/pause the timer, `r` reset the timer, `Esc` put the pen away.
+All of these are configurable.
+
+## Development
+
+The CLI and server are TypeScript that runs directly with Node (only erasable
+syntax, no build needed). The browser code uses [Solid](https://www.solidjs.com/)
+and is bundled with esbuild into `dist/client/`.
+
+```bash
+npm install
+npm run dev      # rebuild on change and serve examples/basic with --watch
+npm run check    # type check
+npm test         # build, then run the tests (node --test)
+npm run build    # dist/cli.js and dist/client/
+```
+
+`npm publish` builds automatically (`prepack`).
 
 ## AI Use Disclaimer
 

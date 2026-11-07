@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f5562'/%3E%3Crect x='7' y='8' width='18' height='12.5' rx='2' fill='none' stroke='%23d5a877' stroke-width='2.5'/%3E%3Cpath d='M12 25h8' stroke='%23d5a877' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <title>Ask a question</title>
+    <link rel="stylesheet" href="qr.css" />
+  </head>
+  <body>
+    <main class="page-center">
+      <div class="card qr">
+        <h1>Ask a question</h1>
+        <img class="qr__code" src="/_/api/questions/qr" alt="QR code for the questions page" />
+        <a class="qr__link" id="qr-link" href="/_/questions" target="_blank" rel="noopener">/_/questions</a>
+        <p class="message" data-level="warn" id="qr-warning" hidden>
+          This address is only reachable from this machine. Run mini-presenter with <code>--funnel</code> or
+          <code>--host 0.0.0.0</code> so the audience can join.
+        </p>
+      </div>
+    </main>
+    <script type="module" src="qr.js"></script>
+  </body>
+</html>

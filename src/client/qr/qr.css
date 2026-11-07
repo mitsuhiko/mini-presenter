@@ -1,0 +1,43 @@
+@import "../ui/ui.css";
+
+.qr {
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  width: min(560px, 100%);
+  padding: 40px 36px;
+  text-align: center;
+}
+
+.qr h1 {
+  margin: 0;
+  font-size: clamp(28px, 5vw, 40px);
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+.qr__code {
+  width: min(70vmin, 360px);
+  aspect-ratio: 1;
+  padding: 16px;
+  border-radius: var(--radius-xl);
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.qr__link {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text);
+  word-break: break-all;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 4px;
+}
+
+.qr .message {
+  text-align: left;
+}
+
+.qr .message code {
+  white-space: nowrap;
+}

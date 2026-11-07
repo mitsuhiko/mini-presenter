@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": [],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web"
+  },
+  "include": [".", "../shared"]
+}
