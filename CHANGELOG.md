@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 This release is a rewrite of the code base in TypeScript with a rebuilt
 presenter UI. Decks and `presenter.json` files keep working as before.
@@ -48,6 +48,9 @@ presenter UI. Decks and `presenter.json` files keep working as before.
 
 ### Fixes
 
+- Fixed PDF export shrinking and clipping viewport-centered slides.
+- Centered the presenter popup on the current screen in server and standalone modes.
+- Fixed relative preview hashes for decks with custom navigation.
 - Malformed URLs no longer crash the server.
 - Drawings and the laser pointer line up with the slide on letterboxed decks.
 - Notes now show on the first slide when the URL has no hash yet.
