@@ -41,6 +41,7 @@ interface PageGlobals {
     head: { appendChild(node: unknown): void };
     createElement(tag: string): { textContent: string };
   };
+  getComputedStyle(element: unknown): { position: string };
   KeyboardEvent: new (type: string, init: Record<string, unknown>) => unknown;
 }
 
@@ -100,6 +101,12 @@ async function pageReady(): Promise<boolean> {
 function pageInstallPrintStyle(css: string): void {
   const w = globalThis as unknown as PageGlobals;
   const style = w.document.createElement("style");
+  // Chrome's paginated initial containing block can shrink and offset decks
+  // centered with absolute positioning and transforms. Anchor them to the body
+  // instead, but preserve decks that already position their body explicitly.
+  if (w.document.body && w.getComputedStyle(w.document.body).position === "static") {
+    css += "\nbody { position: relative !important; }";
+  }
   style.textContent = css;
   w.document.head.appendChild(style);
 }
