@@ -5,6 +5,7 @@ import { DEFAULT_SHORTCUTS, parseConfig, resolveConfig, type PresenterConfig } f
 import { PREVIEW_PARAM, ROUTES, shareBaseUrl, type ServerMessage, type SessionInfo } from "../../shared/protocol.ts";
 import { isEditableTarget, resolveAction } from "../../shared/shortcuts.ts";
 import type { LocalContext } from "../lib/globals.ts";
+import { presenterWindowFeatures } from "../lib/popup.ts";
 import {
   createLocalDisplayTransport,
   createWebSocketTransport,
@@ -69,7 +70,7 @@ function boot(): void {
   };
 
   const openPresenter = () => {
-    const features = "popup,width=1280,height=800";
+    const features = presenterWindowFeatures(window.screen);
     if (local) {
       const popup = window.miniPresenterStandalone?.openPresenterWindow({
         sessionId: local.sessionId,

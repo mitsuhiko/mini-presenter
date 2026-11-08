@@ -7,6 +7,7 @@
 // served by mini-presenter itself this script does nothing.
 
 import { cleanDeckUrl, type LocalContext } from "./lib/globals.ts";
+import { presenterWindowFeatures } from "./lib/popup.ts";
 import { createId } from "./lib/transport.ts";
 
 const SESSION_KEY = "miniPresenter.localSessionId";
@@ -64,7 +65,7 @@ function run(): void {
     };
     // An about:blank popup inherits our origin, so BroadcastChannel works even
     // though the presenter assets come from a CDN.
-    const popup = window.open("about:blank", "miniPresenterView", "popup,width=1280,height=800");
+    const popup = window.open("about:blank", "miniPresenterView", presenterWindowFeatures(window.screen));
     if (!popup) return null;
     write(popup, '<!doctype html><meta charset="utf-8"><title>mini-presenter</title><body style="font:15px system-ui;padding:2rem;color:#2d4b57;background:#d7ebf2">Loading presenter…');
     loadTemplate()
